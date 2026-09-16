@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>数据分析</title>
+<link rel="stylesheet" href="/static/css/main.css">
+<script src="/static/vendor/echarts.min.js"></script>
+</head>
+<body>
+<nav class="nav">
+  <span class="brand">联赛</span>
+  <a href="/">首页</a><a href="/games">对局</a>
+  <a href="/analysis" class="active">分析</a><a href="/admin">管理</a>
+</nav>
+<div class="container">
+  <h1>数据分析</h1>
+  <div class="tabs">
+    <button class="btn on" data-by="player">按玩家</button>
+    <button class="btn" data-by="team">按队伍</button>
+    <select id="target" style="min-width:200px"></select>
+  </div>
+  <div class="stat-cards" id="cards"></div>
+  <div class="grid-2">
+    <div class="card"><h2>顺位分布</h2><div id="rank-chart" class="chart" style="height:300px"></div></div>
+    <div class="card"><h2>役种频次</h2><div id="yaku-chart" class="chart" style="height:300px"></div></div>
+  </div>
+  <div class="card"><h2>积分推移</h2><div id="trend-chart" class="chart"></div></div>
+</div>
+<script type="module">
+import { api, esc } from "/static/js/api.js";
+
+let by = "player";
+let options = [];
+
+function pct(x) { return (x * 100).toFixed(1) + "%"; }
+
+async function loadOptions() {
+  const data = await api(`/api/stats?by=${by}`);
+  options = data.rows;
+  const sel = document.getElementById("target");
+  sel.innerHTML = options.map((r, i) =>
+    `<option value="${i}">${esc(r.nickname || r.name)}（${r.games}场）</option>`).join("");
+  render(0);
+}
+
+function trendParam(row) {
+  const val = by === "team" ? row.team_id : row.player_id;
+  return `by=${by}&id=${val}`;
+}
+
+async function render(idx) {
+  const row = options[idx];
+  if (!row) return;
+  const q = by === "team" ? `?by=team&id=${row.team_id}` : `?by=player&id=${row.player_id}`;
+  const detail = await api(`/api/stats${q}`);
+  const cards = [
+    ["场次", detail.games], ["平均顺位", detail.avg_rank.toFixed(2)],
+    ["和牌率", pct(detail.win_rate)], ["自摸占比", pct(detail.tsumo_share)],
+    ["放铳率", pct(detail.dealin_rate)], ["立直率", pct(detail.riichi_rate)],
+    ["副露率", pct(detail.callout_rate)], ["平均打点", detail.avg_win_score],
+    ["平均铳点", detail.avg_dealin_score], ["素点和", detail.raw_points_sum],
+  ];
+  document.getElementById("cards").innerHTML = cards.map(([k, v]) =>
+    `<div class="stat-card"><div class="v">${v}</div><div class="k">${k}</div></div>`).join("");
+
+  echarts.init(document.getElementById("rank-chart")).setOption({
+    backgroundColor: "transparent",
+    tooltip: {}, grid: { left: 40, right: 10, top: 20, bottom: 30 },
+    xAxis: { type: "category", data: ["一位", "二位", "三位", "四位"],
+             axisLabel: { color: "#8b90a3" } },
+    yAxis: { type: "value", axisLabel: { color: "#8b90a3" },
+             splitLine: { lineStyle: { color: "#2a2e42" } } },
+    series: [{ type: "bar", data: detail.rank_counts,
+               itemStyle: { color: "#5b8cff" } }],
+  });
+
+  const yaku = await api(`/api/stats/yaku?by=${by}&id=${by === "team" ? row.team_id : row.player_id}`);
+  const names = Object.keys(yaku).slice(0, 15).reverse();
+  echarts.init(document.getElementById("yaku-chart")).setOption({
+    backgroundColor: "transparent",
+    tooltip: {}, grid: { left: 130, right: 20, top: 10, bottom: 30 },
+    xAxis: { type: "value", axisLabel: { color: "#8b90a3" } },
+    yAxis: { type: "category", data: names, axisLabel: { color: "#e8e9ee" } },
+    series: [{ type: "bar", data: names.map((n) => yaku[n]),
+               itemStyle: { color: "#e5a544" } }],
+  });
+
+  const trend = await api(`/api/stats/trend?${trendParam(row)}`);
+  const t = trend.rows[0];
+  echarts.init(document.getElementById("trend-chart")).setOption({
+    backgroundColor: "transparent",
+    tooltip: { trigger: "axis" },
+    grid: { left: 50, right: 50, top: 30, bottom: 40 },
+    xAxis: { type: "category", data: (t ? t.games : []).map((g, i) => `第${i + 1}场`),
+             axisLabel: { color: "#8b90a3" } },
+    yAxis: [{ type: "value", axisLabel: { color: "#8b90a3" },
+              splitLine: { lineStyle: { color: "#2a2e42" } } }],
+    series: [{ name: "累计顺位分", type: "line", smooth: true,
+               data: t ? t.points : [], itemStyle: { color: "#e5484d" } }],
+  });
+}
+
+document.querySelectorAll(".tabs .btn").forEach((btn) => btn.addEventListener("click", () => {
+  document.querySelectorAll(".tabs .btn").forEach((b) => b.classList.remove("on"));
+  btn.classList.add("on");
+  by = btn.dataset.by;
+  loadOptions();
+}));
+document.getElementById("target").addEventListener("change", (e) => render(+e.target.value));
+loadOptions().catch((e) => alert(e.message));
+</script>
+</body>
+</html>

@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>管理后台</title>
+<link rel="stylesheet" href="/static/css/main.css">
+</head>
+<body>
+<nav class="nav">
+  <span class="brand">联赛</span>
+  <a href="/">首页</a><a href="/games">对局</a>
+  <a href="/analysis">分析</a><a href="/admin" class="active">管理</a>
+</nav>
+<div class="container">
+  <h1>管理后台</h1>
+  <div class="card" id="token-card">
+    <h3>管理 Token</h3>
+    <input id="token-input" style="min-width:320px" placeholder="粘贴服务端启动时打印的 token">
+    <button class="btn primary" id="token-save">保存</button>
+    <span class="muted" id="token-status"></span>
+  </div>
+
+  <div class="tabs">
+    <button class="btn on" data-tab="league">联赛</button>
+    <button class="btn" data-tab="teams">队伍与选手</button>
+    <button class="btn" data-tab="sync">数据同步</button>
+  </div>
+
+  <div id="tab-league" class="card">
+    <h3>联赛信息</h3>
+    <p><label>名称 <input id="lg-name" style="width:280px"></label>
+       <label>简介 <input id="lg-desc" style="width:320px"></label></p>
+    <p><label>赛事场ID <input id="lg-contest" type="number" style="width:120px"></label>
+       <button class="btn primary" id="lg-save">保存</button></p>
+    <p><label>Logo <input type="file" id="lg-logo" accept=".png,.jpg,.jpeg,.webp,.svg"></label></p>
+    <hr>
+    <h3>积分规则</h3>
+    <p>顺位分 <input id="rp0" type="number" style="width:70px" value="90">
+      <input id="rp1" type="number" style="width:70px" value="45">
+      <input id="rp2" type="number" style="width:70px" value="0">
+      <input id="rp3" type="number" style="width:70px" value="-45">
+      <button class="btn primary" id="rp-save">保存积分规则</button></p>
+  </div>
+
+  <div id="tab-teams" class="card" style="display:none">
+    <h3>队伍</h3>
+    <div id="team-list" style="margin-bottom:16px"></div>
+    <p>新增：<input id="team-name" placeholder="队名">
+       <input id="team-short" placeholder="简称" style="width:80px">
+       <input id="team-color" type="color" value="#5b8cff">
+       <button class="btn" id="team-add">添加</button></p>
+    <hr>
+    <h3>选手（按昵称合并自动建档的占位行）</h3>
+    <div id="player-list" style="margin-bottom:16px;max-height:420px;overflow:auto"></div>
+    <p>新增：<input id="pl-nick" placeholder="昵称">
+       <input id="pl-account" placeholder="雀魂ID(可选)" style="width:130px">
+       <select id="pl-team"></select>
+       <button class="btn" id="pl-add">添加</button></p>
+  </div>
+
+  <div id="tab-sync" class="card" style="display:none">
+    <h3>赛事场初始化（首次）</h3>
+    <p>赛事场ID <input id="init-contest" type="number" style="width:110px">
+       组织者账号 <input id="init-user" style="width:160px">
+       密码 <input id="init-pass" type="password" style="width:160px">
+       <button class="btn primary" id="init-btn">拉取赛事信息与名单</button></p>
+    <hr>
+    <h3>同步对局</h3>
+    <p>组织者账号 <input id="sync-user" style="width:160px">
+       密码 <input id="sync-pass" type="password" style="width:160px">
+       <button class="btn primary" id="sync-btn">开始同步</button>
+       <span class="muted" id="sync-status"></span></p>
+    <hr>
+    <h3>分享链接录入（无需账号）</h3>
+    <p><input id="share-url" style="min-width:420px"
+       placeholder="https://game.maj-soul.com/1/?paipu=xxxx">
+       <button class="btn primary" id="ingest-btn">录入</button></p>
+    <hr>
+    <h3>同步历史</h3>
+    <div id="sync-runs"></div>
+  </div>
+</div>
+<script type="module">
+import { api, toast, esc, token, setToken } from "/static/js/api.js";
+
+const $ = (id) => document.getElementById(id);
+const H = () => ({ "Content-Type": "application/json" });
+const authed = () => !!token();
+async function guard() {
+  if (!authed()) { toast("请先填写管理 token"); return false; }
+  return true;
+}
+
+$("token-save").onclick = () => { setToken($("token-input").value.trim()); toast("已保存"); loadAll(); };
+document.querySelectorAll(".tabs .btn").forEach((b) => b.onclick = () => {
+  document.querySelectorAll(".tabs .btn").forEach((x) => x.classList.remove("on"));
+  b.classList.add("on");
+  ["league", "teams", "sync"].forEach((t) => $(`tab-${t}`).style.display = b.dataset.tab === t ? "" : "none");
+});
+
+async function loadLeague() {
+  const lg = await api("/api/league");
+  $("lg-name").value = lg.name; $("lg-desc").value = lg.description || "";
+  $("lg-contest").value = lg.contest_id || "";
+  const rp = lg.score_rule.rank_points;
+  ["rp0", "rp1", "rp2", "rp3"].forEach((id, i) => $(id).value = rp[i]);
+}
+$("lg-save").onclick = async () => { if (!await guard()) return;
+  await api("/api/admin/league", { method: "PUT", headers: H(),
+    body: JSON.stringify({ name: $("lg-name").value, description: $("lg-desc").value,
+      contest_id: +$("lg-contest").value || null }) });
+  toast("已保存"); };
+$("lg-logo").onchange = async (e) => { if (!await guard()) return;
+  const fd = new FormData(); fd.append("file", e.target.files[0]);
+  const resp = await fetch("/api/admin/league/logo", {
+    method: "PUT", headers: { Authorization: `Bearer ${token()}` }, body: fd });
+  toast(resp.ok ? "Logo 已更新" : "上传失败"); };
+$("rp-save").onclick = async () => { if (!await guard()) return;
+  await api("/api/admin/score-rule", { method: "PUT", headers: H(),
+    body: JSON.stringify({ rank_points: [+$("rp0").value, +$("rp1").value,
+      +$("rp2").value, +$("rp3").value] }) });
+  toast("积分规则已保存"); };
+
+async function loadTeams() {
+  const teams = await api("/api/teams");
+  $("team-list").innerHTML = teams.map((t) => `
+    <div style="display:flex;gap:10px;align-items:center;padding:6px 0">
+      <span class="team-dot" style="background:${t.color}"></span><b>${esc(t.name)}</b>
+      <span class="muted">${t.players.length} 名选手</span>
+      <button class="btn" data-del="${t.id}">删除</button></div>`).join("")
+    || `<span class="muted">暂无队伍</span>`;
+  $("team-list").querySelectorAll("[data-del]").forEach((b) => b.onclick = async () => {
+    if (!await guard()) return;
+    await api(`/api/admin/teams/${b.dataset.del}`, { method: "DELETE" }); loadTeams(); loadPlayers(); });
+  $("pl-team").innerHTML = `<option value="">(无队伍)</option>` +
+    teams.map((t) => `<option value="${t.id}">${esc(t.name)}</option>`).join("");
+}
+$("team-add").onclick = async () => { if (!await guard()) return;
+  await api("/api/admin/teams", { method: "POST", headers: H(),
+    body: JSON.stringify({ name: $("team-name").value, short_name: $("team-short").value,
+      color: $("team-color").value }) });
+  $("team-name").value = ""; loadTeams(); };
+
+async function loadPlayers() {
+  const teams = await api("/api/teams");
+  const teamMap = {};
+  teams.forEach((t) => t.players.forEach((p) => (teamMap[p.id] = t.name)));
+  const stats = await api("/api/stats?by=player");
+  $("player-list").innerHTML = stats.rows.map((p) => `
+    <div style="display:flex;gap:10px;align-items:center;padding:5px 0;border-bottom:1px solid #2a2e42">
+      <b>${esc(p.nickname)}</b>
+      <span class="muted">${p.games}场 · 均顺${p.avg_rank}</span>
+      <select data-pid="${p.player_id}">
+        <option value="">(无队伍)</option>
+        ${teams.map((t) => `<option value="${t.id}" ${teamMap[p.player_id] === t.name ? "selected" : ""}>${esc(t.name)}</option>`).join("")}
+      </select>
+    </div>`).join("");
+  $("player-list").querySelectorAll("select[data-pid]").forEach((sel) => sel.onchange = async () => {
+    if (!await guard()) return;
+    await api(`/api/admin/players/${sel.dataset.pid}`, { method: "PUT", headers: H(),
+      body: JSON.stringify({ team_id: +sel.value || null }) });
+    toast("已分配队伍"); });
+}
+$("pl-add").onclick = async () => { if (!await guard()) return;
+  await api("/api/admin/players", { method: "POST", headers: H(),
+    body: JSON.stringify({ nickname: $("pl-nick").value,
+      account_id: +$("pl-account").value || null,
+      team_id: +$("pl-team").value || null }) });
+  $("pl-nick").value = ""; $("pl-account").value = ""; loadPlayers(); };
+
+$("init-btn").onclick = async () => { if (!await guard()) return;
+  toast("正在连接赛事场…");
+  try {
+    const r = await api("/api/admin/league/init-from-contest", { method: "POST", headers: H(),
+      body: JSON.stringify({ contest_id: +$("init-contest").value,
+        username: $("init-user").value, password: $("init-pass").value }) });
+    toast(`初始化成功：${r.name}（${r.players} 名选手）`);
+    loadLeague(); loadPlayers();
+  } catch (e) { toast("失败：" + e.message, 4000); } };
+
+$("sync-btn").onclick = async () => { if (!await guard()) return;
+  try {
+    await api("/api/admin/sync", { method: "POST", headers: H(),
+      body: JSON.stringify({ username: $("sync-user").value, password: $("sync-pass").value }) });
+    toast("同步已开始");
+    pollStatus();
+  } catch (e) { toast("失败：" + e.message, 4000); } };
+async function pollStatus() {
+  const timer = setInterval(async () => {
+    try {
+      const s = await api("/api/admin/sync/status");
+      $("sync-status").textContent = s.running ? `同步中…` : (s.error || "完成");
+      if (!s.running) { clearInterval(timer); loadRuns(); }
+    } catch (e) { clearInterval(timer); }
+  }, 2000);
+}
+$("ingest-btn").onclick = async () => { if (!await guard()) return;
+  toast("获取牌谱中，可能需要数秒…");
+  try {
+    const r = await api("/api/admin/games/ingest", { method: "POST", headers: H(),
+      body: JSON.stringify({ share_url: $("share-url").value }) });
+    toast(`已录入 ${r.uuid}`);
+    loadRuns();
+  } catch (e) { toast("失败：" + e.message, 5000); } };
+async function loadRuns() {
+  if (!authed()) return;
+  try {
+    const runs = await api("/api/admin/sync-runs");
+    $("sync-runs").innerHTML = runs.map((r) => `
+      <div class="muted">#${r.id} ${r.channel} ${r.status} · 新增${r.games_added}场
+      ${r.errors && r.errors.length ? ` · 错误${r.errors.length}条` : ""}
+      · ${r.started_at || ""}</div>`).join("") || `<span class="muted">暂无</span>`;
+  } catch (e) { /* token 无效时忽略 */ }
+}
+
+async function loadAll() { await loadLeague(); await loadTeams(); await loadPlayers(); loadRuns(); }
+loadAll().catch((e) => toast(e.message));
+</script>
+</body>
+</html>

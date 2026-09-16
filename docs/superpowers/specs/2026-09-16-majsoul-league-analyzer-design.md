@@ -44,6 +44,8 @@ ninklang.tech (https) ┘  (统一解析为         │
 | `league` | id, name, logo_path, description, contest_id, score_rule(JSON), created_at | 单行；score_rule 见 §10 |
 | `teams` | id, name, short_name, logo_path, color, sort_order | color 为主题色（#RRGGBB），前端座位/曲线着色用 |
 | `players` | **account_id(PK, 雀魂账号ID)**, nickname, team_id(FK), contest_registered(bool) | 昵称仅展示用，归属以 account_id 为准 |
+
+> 实现修订（2026-09-16）：players 实际采用代理主键 id + account_id 唯一可空索引（ninklang 通道无 account_id，需昵称占位建档）；包牌（责任払）v1 不实现，pao 字段恒为和了家。详见实现计划"依赖与设计偏离说明"。
 | `games` | **uuid(PK, 牌谱uuid)**, league_id, contest_id, mode(规则JSON), start_time, end_time, raw_head(JSON), fetched_via('dhs'/'ninklang'), synced_at | mode 存红宝数量等；raw_head 存对局头（四家段位/rate等） |
 | `game_players` | (game_uuid, seat) PK, player_account_id, final_score, rank, pt(雀魂pt), stats(JSON) | stats 为该场技术统计（见 §9），ingest 时计算 |
 | `kyokus` | id, game_uuid, index, round(JSON: [kyoku, honba, riichi_bang]), data(JSON, 天凤格式整局数组), summary(JSON) | summary 含结果类型/和了家/放铳家/各家delta，列表页快速渲染用 |

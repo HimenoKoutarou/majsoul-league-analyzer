@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>对局列表</title>
+<link rel="stylesheet" href="/static/css/main.css">
+<script src="/static/vendor/echarts.min.js"></script>
+</head>
+<body>
+<nav class="nav">
+  <span class="brand">联赛</span>
+  <a href="/">首页</a><a href="/games" class="active">对局</a>
+  <a href="/analysis">分析</a><a href="/admin">管理</a>
+</nav>
+<div class="container">
+  <h1>对局列表</h1>
+  <div id="list"></div>
+  <div style="margin-top:16px">
+    <button class="btn" id="prev">上一页</button>
+    <span class="muted" id="pageinfo" style="margin:0 12px"></span>
+    <button class="btn" id="next">下一页</button>
+  </div>
+</div>
+<div id="detail-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);
+  z-index:50;overflow:auto;padding:40px 16px">
+  <div class="container" style="max-width:1080px;background:var(--bg);border-radius:14px;padding:24px"
+       id="detail-body"></div>
+</div>
+<script type="module">
+import { api, esc } from "/static/js/api.js";
+import { tileRow, renderDiscards } from "/static/js/tiles.js";
+
+let page = 1, total = 0;
+const rankBadge = (r) => `<span class="rank-badge rank-${r}">${r}</span>`;
+
+async function load() {
+  const data = await api(`/api/games?page=${page}&size=20`);
+  total = data.total;
+  document.getElementById("pageinfo").textContent =
+    `第 ${page} 页 / 共 ${Math.max(1, Math.ceil(total / 20))} 页（${total} 场）`;
+  document.getElementById("list").innerHTML = data.items.map((g) => `
+    <div class="card" style="cursor:pointer;padding:14px 20px;margin-bottom:12px" data-uuid="${g.uuid}">
+      <div style="display:flex;justify-content:space-between;flex-wrap:wrap">
+        <div class="muted">${g.start_time || "时间未知"} · ${esc(g.rule)}</div>
+        <div class="muted">${g.fetched_via === "dhs" ? "赛事场同步" : "链接录入"}</div>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px">
+        ${g.players.map((p) => `
+          <div style="flex:1;min-width:200px;background:var(--card2);border-radius:8px;padding:8px 12px">
+            ${rankBadge(p.rank)}
+            <span class="team-dot" style="background:${p.team_color || "#555"}"></span>
+            ${esc(p.nickname)}
+            <div class="muted">${p.final_score} 点 · pt ${p.pt > 0 ? "+" : ""}${p.pt}</div>
+          </div>`).join("")}
+      </div>
+    </div>`).join("") || `<div class="card muted">暂无对局</div>`;
+  document.querySelectorAll("#list .card[data-uuid]").forEach((el) =>
+    el.addEventListener("click", () => openDetail(el.dataset.uuid)));
+}
+
+async function openDetail(uuid) {
+  const g = await api(`/api/games/${uuid}`);
+  const body = document.getElementById("detail-body");
+  const players = g.players;
+
+  body.innerHTML = `
+    <div style="display:flex;justify-content:space-between">
+      <h2>${g.start_time || "时间未知"} · ${esc(g.rule)}</h2>
+      <button class="btn" onclick="document.getElementById('detail-modal').style.display='none'">关闭</button>
+    </div>
+    <div class="card"><div id="score-chart" class="chart"></div></div>
+    <div id="kyokus"></div>`;
+  document.getElementById("detail-modal").style.display = "block";
+
+  // 点数推移：局始点数 + 每局 delta 累计
+  const series = players.map((p) => {
+    const scores = g.kyokus.map((k) => k.summary.start_scores[p.seat]);
+    let cur = scores[0];
+    const pts = [cur];
+    for (const k of g.kyokus) {
+      cur += k.summary.deltas[p.seat];
+      pts.push(cur);
+    }
+    return { name: p.nickname, type: "line", data: pts,
+             itemStyle: { color: p.team_color || null } };
+  });
+  echarts.init(document.getElementById("score-chart")).setOption({
+    backgroundColor: "transparent",
+    tooltip: { trigger: "axis" },
+    legend: { textStyle: { color: "#e8e9ee" } },
+    grid: { left: 60, right: 20, top: 40, bottom: 30 },
+    xAxis: { type: "category",
+             data: ["开局"].concat(g.kyokus.map((k) => k.summary.title)),
+             axisLabel: { color: "#8b90a3", rotate: 30 } },
+    yAxis: { type: "value", axisLabel: { color: "#8b90a3" },
+             splitLine: { lineStyle: { color: "#2a2e42" } } },
+    series,
+  });
+
+  const wrap = document.getElementById("kyokus");
+  g.kyokus.forEach((k) => {
+    const s = k.summary;
+    const card = document.createElement("div");
+    card.className = "card";
+    const resultHtml = s.end === "agari"
+      ? s.agari.map((a) => `<span class="tag win">${esc(players[a.winner].nickname)}
+          和了 ${a.score}点 ${a.tsumo ? "(自摸)" : `(放铳:${esc(players[a.loser].nickname)})`}
+          ${esc(a.fu_han)}</span>
+          ${a.yaku.map((y) => `<span class="tag">${esc(y)}</span>`).join("")}`).join("")
+      : s.end === "abortive" ? `<span class="tag">${esc(s.abortive)}（途中流局）</span>`
+      : `<span class="tag">${s.end === "nagashi" ? "流し満貫" : "流局"}</span>`;
+    card.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap">
+        <h3 style="margin:0">${s.title}</h3>
+        <div>${resultHtml}</div>
+      </div>
+      <div class="muted" style="margin:8px 0">宝牌</div>
+      <div id="doras-${k.index}"></div>
+      ${s.uras.length ? `<div class="muted" style="margin:4px 0">里宝</div><div id="uras-${k.index}"></div>` : ""}
+      <div id="seats-${k.index}" style="margin-top:10px"></div>`;
+    wrap.appendChild(card);
+    card.querySelector(`#doras-${k.index}`).appendChild(tileRow(s.doras, "small"));
+    if (s.uras.length) card.querySelector(`#uras-${k.index}`).appendChild(tileRow(s.uras, "small"));
+
+    const seatsDiv = card.querySelector(`#seats-${k.index}`);
+    s.seats.forEach((seat, i) => {
+      const p = players[i];
+      const row = document.createElement("div");
+      row.style.cssText = "display:flex;gap:12px;align-items:flex-start;padding:6px 0;border-top:1px solid #2a2e42";
+      const head = document.createElement("div");
+      head.style.cssText = "min-width:150px";
+      head.innerHTML = `${rankBadge(p.rank)} ${esc(p.nickname)}
+        <span class="team-dot" style="background:${p.team_color || "#555"}"></span><br>
+        <span class="muted">终局 ${(s.start_scores[i] + s.deltas[i])} 点</span>
+        ${seat.riichi ? `<span class="tag riichi">立直</span>` : ""}
+        ${seat.callouts ? `<span class="tag">鸣牌×${seat.callouts}</span>` : ""}`;
+      const riverLabel = document.createElement("div");
+      riverLabel.className = "muted";
+      riverLabel.style.minWidth = "40px";
+      riverLabel.textContent = "河牌";
+      const river = renderDiscards(k.data[6 + 3 * i]);
+      row.append(head, riverLabel, river);
+      seatsDiv.appendChild(row);
+    });
+  });
+}
+
+document.getElementById("prev").onclick = () => { if (page > 1) { page--; load(); } };
+document.getElementById("next").onclick = () => {
+  if (page * 20 < total) { page++; load(); } };
+document.getElementById("detail-modal").addEventListener("click", (e) => {
+  if (e.target.id === "detail-modal") e.target.style.display = "none";
+});
+load().catch((e) => alert(e.message));
+</script>
+</body>
+</html>

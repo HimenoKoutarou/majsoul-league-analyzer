@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>联赛主页</title>
+<link rel="stylesheet" href="/static/css/main.css">
+</head>
+<body>
+<nav class="nav">
+  <span class="brand" id="brand">麻将联赛</span>
+  <a href="/" class="active">首页</a>
+  <a href="/games">对局</a>
+  <a href="/analysis">分析</a>
+  <a href="/admin">管理</a>
+</nav>
+<div class="container">
+  <div class="card" id="league-card" style="display:flex;gap:20px;align-items:center">
+    <img id="logo" style="width:84px;height:84px;border-radius:14px;object-fit:cover;display:none" alt="logo">
+    <div>
+      <h1 id="league-name">—</h1>
+      <div class="muted" id="league-meta"></div>
+      <div class="muted" id="league-desc" style="margin-top:6px"></div>
+    </div>
+  </div>
+  <div class="grid-2">
+    <div class="card">
+      <h2>队伍积分榜</h2>
+      <div style="overflow:auto"><table id="standings"><thead>
+        <tr><th>#</th><th>队伍</th><th>场次</th><th>一位</th><th>二位</th><th>三位</th><th>四位</th>
+        <th>平均顺位</th><th>积分</th><th>素点</th></tr>
+      </thead><tbody></tbody></table></div>
+    </div>
+    <div class="card">
+      <h2>最近对局</h2>
+      <div id="recent"></div>
+    </div>
+  </div>
+</div>
+<script type="module">
+import { api, esc } from "/static/js/api.js";
+
+const rankBadge = (r) => `<span class="rank-badge rank-${r}">${r}</span>`;
+
+async function main() {
+  const league = await api("/api/league");
+  document.getElementById("league-name").textContent = league.name;
+  document.getElementById("brand").textContent = league.name;
+  document.getElementById("league-meta").textContent =
+    `${league.game_count} 场对局 · ${league.team_count} 支队伍 · ${league.player_count} 名选手`;
+  document.getElementById("league-desc").textContent = league.description || "";
+  if (league.logo_path) {
+    const img = document.getElementById("logo");
+    img.src = league.logo_path;
+    img.style.display = "block";
+  }
+  document.title = league.name;
+
+  const st = await api("/api/standings?by=team");
+  const tbody = document.querySelector("#standings tbody");
+  tbody.innerHTML = st.rows.map((r, i) => `
+    <tr>
+      <td>${i + 1}</td>
+      <td><span class="team-dot" style="background:${r.color}"></span>${esc(r.name)}</td>
+      <td>${r.games}</td>
+      ${r.rank_counts.map((c) => `<td>${c}</td>`).join("")}
+      <td>${r.avg_rank.toFixed(2)}</td>
+      <td><b>${r.points}</b></td>
+      <td class="muted">${r.raw_points}</td>
+    </tr>`).join("") || `<tr><td colspan="10" class="muted">暂无对局数据</td></tr>`;
+
+  const games = await api("/api/games?size=5");
+  const recent = document.getElementById("recent");
+  recent.innerHTML = games.items.map((g) => `
+    <div class="card" style="margin-bottom:12px;padding:14px">
+      <div class="muted">${g.start_time || ""} · ${esc(g.rule)}</div>
+      <div style="margin-top:6px">${g.players.map((p) => `
+        <span style="margin-right:14px">${rankBadge(p.rank)}
+        <span class="team-dot" style="background:${p.team_color || "#555"}"></span>
+        ${esc(p.nickname)} <span class="muted">${p.final_score}</span></span>`).join("")}
+      </div>
+    </div>`).join("") || `<div class="muted">暂无对局，去<a href="/admin">管理后台</a>录入</div>`;
+}
+main().catch((e) => alert(e.message));
+</script>
+</body>
+</html>

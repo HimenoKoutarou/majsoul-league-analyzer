@@ -227,6 +227,13 @@ def sync_status_endpoint():
     return sync_status()
 
 
+@router.get("/sync/auto-status", dependencies=[Depends(require_admin)])
+def auto_sync_status_endpoint():
+    from app.services.majsoul.auto_sync import auto_sync_state
+
+    return auto_sync_state()
+
+
 @router.post("/search-player", dependencies=[Depends(require_admin)])
 def search_player(body: dict):
     nickname = str(body.get("nickname") or "").strip()

@@ -12,6 +12,14 @@ PORT = int(os.environ.get("PORT", "8000"))
 # 会话有效期（秒），默认 7 天
 SESSION_MAX_AGE = int(os.environ.get("SESSION_MAX_AGE", str(7 * 24 * 3600)))
 
+# 赛事场自动检测（每天定点增量同步）
+AUTO_SYNC_ENABLED = os.environ.get("AUTO_SYNC_ENABLED", "").lower() in ("1", "true", "yes", "on")
+# 每天触发时刻（HH:MM），默认 22:00
+AUTO_SYNC_TIME = os.environ.get("AUTO_SYNC_TIME", "22:00").strip() or "22:00"
+# 赛事场组织者账号密码（自动检测需要；仅从环境变量读取，不落盘）
+DHS_USERNAME = os.environ.get("DHS_USERNAME", "").strip()
+DHS_PASSWORD = os.environ.get("DHS_PASSWORD", "").strip()
+
 _admin_token_cache: str | None = None
 _admin_username_cache: str | None = None
 _admin_password_cache: str | None = None

@@ -73,6 +73,9 @@
        placeholder="https://game.maj-soul.com/1/?paipu=xxxx">
        <button class="btn primary" id="ingest-btn">录入</button></p>
     <hr>
+    <h3>自动检测（赛事场有更新自动同步）</h3>
+    <div id="auto-sync-status" class="muted">加载中…</div>
+    <hr>
     <h3>同步历史</h3>
     <div id="sync-runs"></div>
   </div>
@@ -213,7 +216,7 @@ async function pollStatus() {
     try {
       const s = await api("/api/admin/sync/status");
       $("sync-status").textContent = s.running ? `同步中…` : (s.error || "完成");
-      if (!s.running) { clearInterval(timer); loadRuns(); }
+      if (!s.running) { clearInterval(timer); loadRuns(); loadAutoSync(); }
     } catch (e) { clearInterval(timer); }
   }, 2000);
 }
@@ -235,8 +238,28 @@ async function loadRuns() {
       · ${r.started_at || ""}</div>`).join("") || `<span class="muted">暂无</span>`;
   } catch (e) { /* token 无效时忽略 */ }
 }
+async function loadAutoSync() {
+  try {
+    const s = await api("/api/admin/sync/auto-status");
+    if (!s.enabled) {
+      $("auto-sync-status").innerHTML =
+        `<span class="muted">未开启（设 AUTO_SYNC_ENABLED=true 并配置 DHS_USERNAME / DHS_PASSWORD）</span>`;
+      return;
+    }
+    const label = { success: "成功", partial: "部分成功", skipped: "已跳过", failed: "失败" }[s.last_status] || (s.last_status || "—");
+    const parts = [
+      `每天 ${s.schedule || "22:00"}`,
+      `上次 ${s.last_run_at ? s.last_run_at.replace("T", " ").slice(0, 19) : "—"}`,
+      `新增 ${s.last_added} 场`,
+      `结果 ${label}`,
+    ];
+    if (s.next_run_at) parts.push(`下次 ${s.next_run_at.replace("T", " ").slice(0, 19)}`);
+    if (s.last_error) parts.push(`<span style="color:#b91c1c">${esc(s.last_error)}</span>`);
+    $("auto-sync-status").innerHTML = parts.join(" · ");
+  } catch (e) { /* ignore */ }
+}
 
-async function loadAll() { await loadLeague(); await loadTeams(); await loadPlayers(); loadRuns(); }
+async function loadAll() { await loadLeague(); await loadTeams(); await loadPlayers(); loadRuns(); loadAutoSync(); }
 loadAll().catch((e) => toast(e.message));
 </script>
 </body>

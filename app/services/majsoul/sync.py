@@ -27,7 +27,7 @@ async def _default_make_lobby(username: str, password: str):
 
 
 def run_dhs_sync(db: Session, contest_id: int, username: str, password: str,
-                 make_dhs=None, make_lobby=None) -> dict:
+                 make_dhs=None, make_lobby=None, triggered_by: str = "manual") -> dict:
     """阻塞执行两阶段同步（管理端在线调用或后台线程调用）。"""
     run = SyncRun(channel="dhs", status="running", started_at=datetime.now())
     db.add(run)
@@ -97,7 +97,7 @@ def run_dhs_sync(db: Session, contest_id: int, username: str, password: str,
         run.status = "success" if not result["errors"] else "partial"
         run.games_added = result["games_added"]
         run.errors = result["errors"]
-        run.detail = {"total_listed": result["total_listed"]}
+        run.detail = {"total_listed": result["total_listed"], "triggered_by": triggered_by}
     except Exception as exc:
         db.rollback()
         run.status = "failed"
@@ -111,22 +111,30 @@ def run_dhs_sync(db: Session, contest_id: int, username: str, password: str,
             "status": run.status}
 
 
-def start_sync_thread(session_factory, contest_id, username, password):
-    """后台线程执行同步（管理 API 触发）。"""
+def start_sync_thread(session_factory, contest_id, username, password,
+                      triggered_by="manual", callback=None):
+    """后台线程执行同步（管理 API 触发）。可选 callback(result) 在完成后回调。"""
     with _state_lock:
         if _sync_state["running"]:
             return False
         _sync_state.update(running=True, phase="", progress="", error=None)
 
     def _worker():
+        result = None
         try:
             with session_factory() as session:
-                run_dhs_sync(session, contest_id, username, password)
+                result = run_dhs_sync(session, contest_id, username, password,
+                                      triggered_by=triggered_by)
             with _state_lock:
                 _sync_state.update(running=False, phase="done")
         except Exception as exc:
             with _state_lock:
                 _sync_state.update(running=False, phase="failed", error=str(exc))
+        if callback:
+            try:
+                callback(result)
+            except Exception:
+                pass
 
     threading.Thread(target=_worker, daemon=True).start()
     return True

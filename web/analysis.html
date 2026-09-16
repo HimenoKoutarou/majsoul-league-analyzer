@@ -68,9 +68,9 @@ async function render(idx) {
     backgroundColor: "transparent",
     tooltip: {}, grid: { left: 40, right: 10, top: 20, bottom: 30 },
     xAxis: { type: "category", data: ["一位", "二位", "三位", "四位"],
-             axisLabel: { color: "#8b90a3" } },
-    yAxis: { type: "value", axisLabel: { color: "#8b90a3" },
-             splitLine: { lineStyle: { color: "#2a2e42" } } },
+             axisLabel: { color: "#6b7280" } },
+    yAxis: { type: "value", axisLabel: { color: "#6b7280" },
+             splitLine: { lineStyle: { color: "#e5e7eb" } } },
     series: [{ type: "bar", data: detail.rank_counts,
                itemStyle: { color: "#5b8cff" } }],
   });
@@ -80,8 +80,8 @@ async function render(idx) {
   echarts.init(document.getElementById("yaku-chart")).setOption({
     backgroundColor: "transparent",
     tooltip: {}, grid: { left: 130, right: 20, top: 10, bottom: 30 },
-    xAxis: { type: "value", axisLabel: { color: "#8b90a3" } },
-    yAxis: { type: "category", data: names, axisLabel: { color: "#e8e9ee" } },
+    xAxis: { type: "value", axisLabel: { color: "#6b7280" } },
+    yAxis: { type: "category", data: names, axisLabel: { color: "#1f2430" } },
     series: [{ type: "bar", data: names.map((n) => yaku[n]),
                itemStyle: { color: "#e5a544" } }],
   });
@@ -93,9 +93,9 @@ async function render(idx) {
     tooltip: { trigger: "axis" },
     grid: { left: 50, right: 50, top: 30, bottom: 40 },
     xAxis: { type: "category", data: (t ? t.games : []).map((g, i) => `第${i + 1}场`),
-             axisLabel: { color: "#8b90a3" } },
-    yAxis: [{ type: "value", axisLabel: { color: "#8b90a3" },
-              splitLine: { lineStyle: { color: "#2a2e42" } } }],
+             axisLabel: { color: "#6b7280" } },
+    yAxis: [{ type: "value", axisLabel: { color: "#6b7280" },
+              splitLine: { lineStyle: { color: "#e5e7eb" } } }],
     series: [{ name: "累计顺位分", type: "line", smooth: true,
                data: t ? t.points : [], itemStyle: { color: "#e5484d" } }],
   });

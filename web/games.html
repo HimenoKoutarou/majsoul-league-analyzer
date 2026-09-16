@@ -88,13 +88,13 @@ async function openDetail(uuid) {
   echarts.init(document.getElementById("score-chart")).setOption({
     backgroundColor: "transparent",
     tooltip: { trigger: "axis" },
-    legend: { textStyle: { color: "#e8e9ee" } },
+    legend: { textStyle: { color: "#1f2430" } },
     grid: { left: 60, right: 20, top: 40, bottom: 30 },
     xAxis: { type: "category",
              data: ["开局"].concat(g.kyokus.map((k) => k.summary.title)),
-             axisLabel: { color: "#8b90a3", rotate: 30 } },
-    yAxis: { type: "value", axisLabel: { color: "#8b90a3" },
-             splitLine: { lineStyle: { color: "#2a2e42" } } },
+             axisLabel: { color: "#6b7280", rotate: 30 } },
+    yAxis: { type: "value", axisLabel: { color: "#6b7280" },
+             splitLine: { lineStyle: { color: "#e5e7eb" } } },
     series,
   });
 
@@ -127,7 +127,7 @@ async function openDetail(uuid) {
     s.seats.forEach((seat, i) => {
       const p = players[i];
       const row = document.createElement("div");
-      row.style.cssText = "display:flex;gap:12px;align-items:flex-start;padding:6px 0;border-top:1px solid #2a2e42";
+      row.style.cssText = "display:flex;gap:12px;align-items:flex-start;padding:6px 0;border-top:1px solid #e5e7eb";
       const head = document.createElement("div");
       head.style.cssText = "min-width:150px";
       head.innerHTML = `${rankBadge(p.rank)} ${esc(p.nickname)}

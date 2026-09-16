@@ -44,8 +44,8 @@ def test_compute_standings_by_player(db):
 
 def test_aggregate_and_team_stats(db):
     _setup(db)
-    agg = aggregate_games([gp.stats for gp in
-                           db.query(GamePlayer).filter_by(seat=3)])
+    agg = aggregate_games([dict(gp.stats, rank=gp.rank, raw_points=gp.final_score, pt=gp.pt)
+                           for gp in db.query(GamePlayer).filter_by(seat=3)])
     assert agg["games"] == 1
     assert agg["win"] == 2
     assert agg["riichi"] == 0

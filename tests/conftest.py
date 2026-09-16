@@ -1,9 +1,15 @@
+import sys
+from pathlib import Path
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
+
+# 让 majsoul 子包内的 import liqi_combined_pb2 直接可用
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app" / "services" / "majsoul"))
 
 
 @pytest.fixture

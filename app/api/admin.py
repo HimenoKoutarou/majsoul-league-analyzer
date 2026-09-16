@@ -1,4 +1,4 @@
-"""管理 API（Bearer token 鉴权）。"""
+"""管理 API（cookie session 鉴权，Bearer token 兼容）。"""
 import secrets
 from pathlib import Path
 
@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 import app.config as config
+from app.api.auth import current_user
 from app.db import get_db
 from app.models import Game, League, Player, SyncRun, Team
 from app.services.ninklang import fetch_tenhou
@@ -17,10 +18,9 @@ UPLOAD_DIR = Path(__file__).resolve().parents[2] / "web" / "uploads"
 ALLOWED_EXT = {".png", ".jpg", ".jpeg", ".webp", ".svg"}
 
 
-def require_admin(authorization: str = Header(default="")):
-    token = config.ensure_admin_token()
-    if authorization != f"Bearer {token}":
-        raise HTTPException(401, "管理 token 无效")
+def require_admin(user: str = Depends(current_user)):
+    """鉴权：cookie session 优先，Bearer token 兼容 API/CI。"""
+    return user
 
 
 def _league(db: Session) -> League:
@@ -114,11 +114,27 @@ def delete_team(team_id: int, db: Session = Depends(get_db)):
     return {"ok": True}
 
 
+@router.get("/players", dependencies=[Depends(require_admin)])
+def list_players(db: Session = Depends(get_db)):
+    rows = (db.query(Player, Team)
+            .join(Team, Player.team_id == Team.id, isouter=True)
+            .order_by(Team.sort_order, Team.id, Player.nickname, Player.id).all())
+    return [{"id": p.id, "nickname": p.nickname, "account_id": p.account_id,
+             "team_id": p.team_id, "team_name": t.name if t else None,
+             "contest_registered": p.contest_registered} for p, t in rows]
+
+
 @router.post("/players", dependencies=[Depends(require_admin)])
 def create_player(body: dict, db: Session = Depends(get_db)):
     if not body.get("nickname"):
         raise HTTPException(422, "昵称不能为空")
-    player = Player(nickname=body["nickname"], account_id=body.get("account_id"),
+    try:
+        account_id = int(body.get("account_id"))
+    except (TypeError, ValueError):
+        account_id = 0
+    if account_id <= 0:
+        raise HTTPException(422, "雀魂ID不能为空")
+    player = Player(nickname=body["nickname"], account_id=account_id,
                     team_id=body.get("team_id"))
     try:
         db.add(player)

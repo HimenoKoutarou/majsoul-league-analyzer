@@ -10,9 +10,10 @@ WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 def create_app() -> FastAPI:
     application = FastAPI(title="雀魂联赛分析")
-    from app.api import admin, public
+    from app.api import admin, auth, public
 
     application.include_router(public.router, prefix="/api")
+    application.include_router(auth.router, prefix="/api/admin")
     application.include_router(admin.router, prefix="/api/admin")
     application.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
 
@@ -31,6 +32,10 @@ def create_app() -> FastAPI:
     @application.get("/admin")
     def admin_page():
         return FileResponse(WEB_DIR / "admin.html")
+
+    @application.get("/admin/login")
+    def admin_login_page():
+        return FileResponse(WEB_DIR / "admin_login.html")
 
     return application
 

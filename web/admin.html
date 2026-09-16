@@ -11,15 +11,11 @@
   <span class="brand">联赛</span>
   <a href="/">首页</a><a href="/games">对局</a>
   <a href="/analysis">分析</a><a href="/admin" class="active">管理</a>
+  <span class="muted" id="whoami" style="margin-left:auto"></span>
+  <button class="btn" id="logout-btn" style="margin-left:8px">登出</button>
 </nav>
 <div class="container">
   <h1>管理后台</h1>
-  <div class="card" id="token-card">
-    <h3>管理 Token</h3>
-    <input id="token-input" style="min-width:320px" placeholder="粘贴服务端启动时打印的 token">
-    <button class="btn primary" id="token-save">保存</button>
-    <span class="muted" id="token-status"></span>
-  </div>
 
   <div class="tabs">
     <button class="btn on" data-tab="league">联赛</button>
@@ -51,10 +47,10 @@
        <input id="team-color" type="color" value="#5b8cff">
        <button class="btn" id="team-add">添加</button></p>
     <hr>
-    <h3>选手（按昵称合并自动建档的占位行）</h3>
+    <h3>选手名单</h3>
     <div id="player-list" style="margin-bottom:16px;max-height:420px;overflow:auto"></div>
     <p>新增：<input id="pl-nick" placeholder="昵称">
-       <input id="pl-account" placeholder="雀魂ID(可选)" style="width:130px">
+       <input id="pl-account" type="number" placeholder="雀魂ID(必填)" style="width:140px">
        <select id="pl-team"></select>
        <button class="btn" id="pl-add">添加</button></p>
   </div>
@@ -82,17 +78,32 @@
   </div>
 </div>
 <script type="module">
-import { api, toast, esc, token, setToken } from "/static/js/api.js";
+import { api, toast, esc, isLoggedIn, logout } from "/static/js/api.js";
 
 const $ = (id) => document.getElementById(id);
 const H = () => ({ "Content-Type": "application/json" });
-const authed = () => !!token();
+const authed = () => isLoggedIn();
 async function guard() {
-  if (!authed()) { toast("请先填写管理 token"); return false; }
+  if (!(await authed())) {
+    const next = encodeURIComponent(location.pathname + location.search);
+    location.href = `/admin/login?next=${next}`;
+    return false;
+  }
   return true;
 }
 
-$("token-save").onclick = () => { setToken($("token-input").value.trim()); toast("已保存"); loadAll(); };
+$("logout-btn").onclick = () => logout();
+(async () => {
+  if (!(await isLoggedIn())) {
+    const next = encodeURIComponent(location.pathname + location.search);
+    location.href = `/admin/login?next=${next}`;
+    return;
+  }
+  try {
+    const me = await api("/api/admin/me");
+    $("whoami").textContent = `已登录：${me.username}`;
+  } catch (e) { /* ignore */ }
+})();
 document.querySelectorAll(".tabs .btn").forEach((b) => b.onclick = () => {
   document.querySelectorAll(".tabs .btn").forEach((x) => x.classList.remove("on"));
   b.classList.add("on");
@@ -114,7 +125,8 @@ $("lg-save").onclick = async () => { if (!await guard()) return;
 $("lg-logo").onchange = async (e) => { if (!await guard()) return;
   const fd = new FormData(); fd.append("file", e.target.files[0]);
   const resp = await fetch("/api/admin/league/logo", {
-    method: "PUT", headers: { Authorization: `Bearer ${token()}` }, body: fd });
+    method: "PUT", credentials: "same-origin", body: fd });
+  if (resp.status === 401) { toast("请重新登录"); setTimeout(() => logout(), 1000); return; }
   toast(resp.ok ? "Logo 已更新" : "上传失败"); };
 $("rp-save").onclick = async () => { if (!await guard()) return;
   await api("/api/admin/score-rule", { method: "PUT", headers: H(),
@@ -124,12 +136,21 @@ $("rp-save").onclick = async () => { if (!await guard()) return;
 
 async function loadTeams() {
   const teams = await api("/api/teams");
-  $("team-list").innerHTML = teams.map((t) => `
-    <div style="display:flex;gap:10px;align-items:center;padding:6px 0">
-      <span class="team-dot" style="background:${t.color}"></span><b>${esc(t.name)}</b>
-      <span class="muted">${t.players.length} 名选手</span>
-      <button class="btn" data-del="${t.id}">删除</button></div>`).join("")
-    || `<span class="muted">暂无队伍</span>`;
+  $("team-list").innerHTML = teams.map((t) => {
+    const members = t.players.map((p) =>
+      `<span class="member-chip">${esc(p.nickname)}<span class="muted">(雀魂ID ${p.account_id ?? "—"})</span></span>`).join("");
+    return `
+      <div style="padding:8px 0;border-bottom:1px solid #e5e7eb">
+        <div style="display:flex;gap:10px;align-items:center">
+          <span class="team-dot" style="background:${t.color}"></span><b>${esc(t.name)}</b>
+          <span class="muted">${t.players.length} 名选手</span>
+          <button class="btn" data-del="${t.id}">删除</button>
+        </div>
+        <div style="margin:6px 0 0 20px;display:flex;gap:8px;flex-wrap:wrap">
+          ${members || `<span class="muted">暂无选手</span>`}
+        </div>
+      </div>`;
+  }).join("") || `<span class="muted">暂无队伍</span>`;
   $("team-list").querySelectorAll("[data-del]").forEach((b) => b.onclick = async () => {
     if (!await guard()) return;
     await api(`/api/admin/teams/${b.dataset.del}`, { method: "DELETE" }); loadTeams(); loadPlayers(); });
@@ -144,30 +165,31 @@ $("team-add").onclick = async () => { if (!await guard()) return;
 
 async function loadPlayers() {
   const teams = await api("/api/teams");
-  const teamMap = {};
-  teams.forEach((t) => t.players.forEach((p) => (teamMap[p.id] = t.name)));
-  const stats = await api("/api/stats?by=player");
-  $("player-list").innerHTML = stats.rows.map((p) => `
-    <div style="display:flex;gap:10px;align-items:center;padding:5px 0;border-bottom:1px solid #2a2e42">
+  const players = await api("/api/admin/players");
+  $("player-list").innerHTML = players.map((p) => `
+    <div style="display:flex;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid #e5e7eb">
       <b>${esc(p.nickname)}</b>
-      <span class="muted">${p.games}场 · 均顺${p.avg_rank}</span>
-      <select data-pid="${p.player_id}">
+      <span class="muted">雀魂ID ${p.account_id ?? "—"}</span>
+      <select data-pid="${p.id}">
         <option value="">(无队伍)</option>
-        ${teams.map((t) => `<option value="${t.id}" ${teamMap[p.player_id] === t.name ? "selected" : ""}>${esc(t.name)}</option>`).join("")}
+        ${teams.map((t) => `<option value="${t.id}" ${p.team_id === t.id ? "selected" : ""}>${esc(t.name)}</option>`).join("")}
       </select>
-    </div>`).join("");
+    </div>`).join("") || `<span class="muted">暂无选手</span>`;
   $("player-list").querySelectorAll("select[data-pid]").forEach((sel) => sel.onchange = async () => {
     if (!await guard()) return;
     await api(`/api/admin/players/${sel.dataset.pid}`, { method: "PUT", headers: H(),
       body: JSON.stringify({ team_id: +sel.value || null }) });
-    toast("已分配队伍"); });
+    toast("已分配队伍"); loadTeams(); });
 }
 $("pl-add").onclick = async () => { if (!await guard()) return;
+  const nickname = $("pl-nick").value.trim();
+  const accountId = $("pl-account").value.trim();
+  if (!nickname) { toast("昵称不能为空"); return; }
+  if (!accountId || +accountId <= 0) { toast("雀魂ID必填"); return; }
   await api("/api/admin/players", { method: "POST", headers: H(),
-    body: JSON.stringify({ nickname: $("pl-nick").value,
-      account_id: +$("pl-account").value || null,
+    body: JSON.stringify({ nickname, account_id: +accountId,
       team_id: +$("pl-team").value || null }) });
-  $("pl-nick").value = ""; $("pl-account").value = ""; loadPlayers(); };
+  $("pl-nick").value = ""; $("pl-account").value = ""; loadPlayers(); loadTeams(); };
 
 $("init-btn").onclick = async () => { if (!await guard()) return;
   toast("正在连接赛事场…");

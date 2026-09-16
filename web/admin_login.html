@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>管理员登录</title>
+<link rel="stylesheet" href="/static/css/main.css">
+<style>
+  .login-wrap { max-width: 360px; margin: 80px auto; }
+  .login-card { background: var(--card, #ffffff); padding: 28px 24px; border-radius: 12px;
+    border: 1px solid #e5e7eb; }
+  .login-card h2 { margin: 0 0 18px; }
+  .login-card label { display: block; margin-bottom: 14px; }
+  .login-card input { width: 100%; padding: 8px 10px; box-sizing: border-box; }
+  .login-card .btn { width: 100%; }
+</style>
+</head>
+<body>
+<nav class="nav">
+  <span class="brand">联赛</span>
+  <a href="/">首页</a><a href="/games">对局</a>
+  <a href="/analysis">分析</a><a href="/admin">管理</a>
+</nav>
+<div class="container">
+  <div class="login-wrap">
+    <form class="login-card" id="login-form">
+      <h2>管理员登录</h2>
+      <label>账号
+        <input id="username" autocomplete="username" required>
+      </label>
+      <label>密码
+        <input id="password" type="password" autocomplete="current-password" required>
+      </label>
+      <button type="submit" class="btn primary">登录</button>
+      <p class="muted" id="err" style="margin-top:10px"></p>
+    </form>
+  </div>
+</div>
+<script type="module">
+import { toast } from "/static/js/api.js";
+
+const $ = (id) => document.getElementById(id);
+$("login-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  $("err").textContent = "";
+  try {
+    const resp = await fetch("/api/admin/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: $("username").value, password: $("password").value }),
+    });
+    if (!resp.ok) {
+      let msg = `HTTP ${resp.status}`;
+      try { msg = (await resp.json()).detail || msg; } catch (_) {}
+      $("err").textContent = msg;
+      return;
+    }
+    const next = new URLSearchParams(location.search).get("next") || "/admin";
+    location.href = next;
+  } catch (e) {
+    toast("网络错误：" + e.message);
+  }
+});
+</script>
+</body>
+</html>

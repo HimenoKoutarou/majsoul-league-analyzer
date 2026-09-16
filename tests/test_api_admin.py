@@ -16,10 +16,21 @@ SAMPLE = json.loads((Path(__file__).resolve().parents[1] / "sample_paipu.json").
 def client(db, monkeypatch):
     _ = db  # league 行由测试显式创建
     monkeypatch.setattr(config, "_admin_token_cache", "test-token")
+    monkeypatch.setattr(config, "_admin_username_cache", "admin")
+    monkeypatch.setattr(config, "_admin_password_cache", "test-pass")
+    monkeypatch.setattr(config, "_session_secret_cache", "test-secret")
     app = create_app()
     app.dependency_overrides[get_db] = lambda: (yield db)
     with TestClient(app) as c:
         yield c
+
+
+def _login(client, username="admin", password="test-pass"):
+    """以 cookie 形式登录，便于覆盖 cookie 鉴权路径。"""
+    r = client.post("/api/admin/login",
+                    json={"username": username, "password": password})
+    assert r.status_code == 200, r.text
+    return r
 
 
 def _auth(client):
@@ -76,6 +87,26 @@ def test_admin_teams_players_crud(client, db):
     r = client.delete(f"/api/admin/teams/{team_id}", headers=_auth(client))
     assert r.status_code == 200
     assert db.query(Team).count() == 0
+
+
+def test_create_player_requires_account_id(client, db):
+    _seed_league(db)
+    r = client.post("/api/admin/players",
+                    json={"nickname": "无名雀士", "team_id": None},
+                    headers=_auth(client))
+    assert r.status_code == 422
+    assert db.query(Player).count() == 0
+
+
+def test_list_players(client, db):
+    _seed_league(db)
+    client.post("/api/admin/players",
+                json={"nickname": "张三", "team_id": None, "account_id": 111},
+                headers=_auth(client))
+    r = client.get("/api/admin/players", headers=_auth(client))
+    assert r.status_code == 200
+    rows = r.json()
+    assert any(p["nickname"] == "张三" and p["account_id"] == 111 for p in rows)
 
 
 def test_admin_ingest_with_fake_ninklang(client, db, monkeypatch):

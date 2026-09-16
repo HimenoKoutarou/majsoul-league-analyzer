@@ -16,7 +16,8 @@ def _client() -> httpx.Client:
     return httpx.Client(timeout=30.0)
 
 
-_SHARE_RE = re.compile(r"^\d{6}-[A-Za-z0-9-]{30,}_\d+$")
+_UUID = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+_SHARE_RE = re.compile(rf"^\d{{6}}-{_UUID}_[A-Za-z0-9]+$")
 
 
 def normalize_share_url(text: str) -> str:

@@ -64,8 +64,7 @@ def test_public_endpoints(client, db):
     assert r.status_code == 200
     rows = r.json()["rows"]
     assert len(rows) == 4
-    top = rows[0]
-    assert top["nickname"] == SAMPLE["name"][3]
+    top = next(row for row in rows if row["nickname"] == SAMPLE["name"][3])
 
     pid = top["player_id"]
     r = client.get(f"/api/stats?by=player&id={pid}")

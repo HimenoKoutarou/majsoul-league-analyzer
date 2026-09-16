@@ -6,16 +6,17 @@ TSUMOGIRI = 60
 
 
 def tile_display(code: int) -> str:
-    """数字编码 → 显示串（红5 用 0 前缀，与雀魂 proto 字符串一致）。"""
+    """数字编码 → 显示串（"1m"/"9m"/"5p"/"1z"/"0m"红5），与雀魂字符串一致。"""
     if code in (51, 52, 53):
         return f"0{'mps'[code - 51]}"
-    return str(code)
+    suit = "mpsz"[(code // 10) - 1]
+    return str(code % 10) + suit
 
 
 def tile_deaka(code: int) -> int:
-    """红5 → 普通5。"""
+    """红5 → 普通5（51→15, 52→25, 53→35）。"""
     if code in (51, 52, 53):
-        return code - 51 + 15
+        return 15 + (code - 51) * 10
     return code
 
 

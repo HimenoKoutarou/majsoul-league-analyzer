@@ -1,0 +1,26 @@
+# systemd 单元示例（部署用）
+# 放到服务器:  sudo cp majsoul-league-analyzer.service /etc/systemd/system/
+# 启动:        sudo systemctl daemon-reload
+#              sudo systemctl enable --now majsoul-league-analyzer
+# 日志:        sudo journalctl -u majsoul-league-analyzer -f
+#
+# 说明：脚本默认以项目根目录的 .venv 运行。若你不想用 venv，可去掉下面
+# ExecStart 前的 ".venv/bin/" 前缀并改用系统 pip。路径按实际部署目录调整。
+
+[Unit]
+Description=Majsoul League Analyzer (雀魂联赛分析)
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/majsoul-league-analyzer
+Environment=PORT=8000
+Environment=HOST=0.0.0.0
+ExecStart=/opt/majsoul-league-analyzer/.venv/bin/python /opt/majsoul-league-analyzer/run.py
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

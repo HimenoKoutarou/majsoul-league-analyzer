@@ -1,0 +1,4 @@
+# 测试依赖（CI / 本地开发用）。生产运行时只需 requirements.txt。
+-r requirements.txt
+pytest>=7
+pytest-asyncio>=0.23

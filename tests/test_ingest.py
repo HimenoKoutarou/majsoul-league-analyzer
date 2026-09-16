@@ -28,25 +28,24 @@ def test_ingest_sample(db):
     assert [gp.rank for gp in gps] == [4, 2, 3, 1]
     assert [gp.pt for gp in gps] == [-35.6, 4.9, -15.5, 46.2]
 
-    # 座位3（姬野家の星奏，一位）：第2局荣和 2000，无立直；样本里它东一局立直过
+    # 座位3（姬野家の星奏，一位）：赢2局（东二2本荣和2000 + 海底自摸）
     s3 = gps[3].stats
     assert s3["kyoku_played"] == 9
     assert s3["riichi"] == 0
-    assert s3["win"] == 1
-    assert s3["tsumo"] == 0
-    assert s3["dealin"] == 0
-    assert s3["win_score"] == 2000
+    assert s3["win"] == 2
+    assert s3["tsumo"] == 1
+    assert s3["dealin"] == 1
+    assert s3["win_score"] == 10000
     assert s3["yaku"]["役牌 白(1飜)"] == 1
-    assert s3["yaku"]["ドラ(1飜)"] == 1
+    assert s3["yaku"]["ドラ(1飜)"] == 2
 
-    # 座位0 放铳第2局
+    # 座位0 放铳1次（东2 二本2600 分差中的 2000 打点）
     s0 = gps[0].stats
     assert s0["dealin"] == 1
     assert s0["dealin_score"] == 2000
 
     # 座位3 在东一局碰过（"47p4747"）
-    s3b = gps[3].stats
-    assert s3b["callout_kyoku"] >= 1
+    assert s3["callout_kyoku"] >= 1
 
     assert db.query(Kyoku).count() == 9
 

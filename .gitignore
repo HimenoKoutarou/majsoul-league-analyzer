@@ -1,0 +1,18 @@
+# 运行时数据与本地文件
+data/
+*.db
+.admin_token
+web/uploads/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+
+# 参考源码（仅本地留存，不入库）
+.tensoul_ref/
+
+# 临时
+tmp/
+*.log

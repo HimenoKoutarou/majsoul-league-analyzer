@@ -11,6 +11,8 @@ class Base(DeclarativeBase):
 
 def _make_engine():
     connect_args = {"check_same_thread": False} if config.DATABASE_URL.startswith("sqlite") else {}
+    if config.DATABASE_URL.startswith("sqlite:///"):
+        config.DATA_DIR.mkdir(parents=True, exist_ok=True)
     return create_engine(config.DATABASE_URL, connect_args=connect_args)
 
 

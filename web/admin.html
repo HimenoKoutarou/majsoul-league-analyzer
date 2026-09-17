@@ -20,6 +20,7 @@
   <div class="tabs">
     <button class="btn on" data-tab="league">联赛</button>
     <button class="btn" data-tab="teams">队伍与选手</button>
+    <button class="btn" data-tab="bounties">悬赏</button>
     <button class="btn" data-tab="sync">数据同步</button>
   </div>
 
@@ -53,6 +54,14 @@
        <input id="pl-account" type="number" placeholder="雀魂ID(必填)" style="width:140px">
        <select id="pl-team"></select>
        <button class="btn" id="pl-add">添加</button></p>
+  </div>
+
+  <div id="tab-bounties" class="card" style="display:none">
+    <h3>悬赏审核</h3>
+    <div id="admin-bounty-list" style="margin-bottom:16px"></div>
+    <hr>
+    <h3>牌谱审核</h3>
+    <div id="admin-claim-list"></div>
   </div>
 
   <div id="tab-sync" class="card" style="display:none">
@@ -110,7 +119,11 @@ $("logout-btn").onclick = () => logout();
 document.querySelectorAll(".tabs .btn").forEach((b) => b.onclick = () => {
   document.querySelectorAll(".tabs .btn").forEach((x) => x.classList.remove("on"));
   b.classList.add("on");
-  ["league", "teams", "sync"].forEach((t) => $(`tab-${t}`).style.display = b.dataset.tab === t ? "" : "none");
+  ["league", "teams", "bounties", "sync"].forEach((t) => {
+    const show = b.dataset.tab === t;
+    $(`tab-${t}`).style.display = show ? "" : "none";
+    if (show && t === "bounties") { loadAdminBounties(); loadAdminClaims(); }
+  });
 });
 
 async function loadLeague() {
@@ -259,7 +272,77 @@ async function loadAutoSync() {
   } catch (e) { /* ignore */ }
 }
 
-async function loadAll() { await loadLeague(); await loadTeams(); await loadPlayers(); loadRuns(); loadAutoSync(); }
+function bountyStatusTag(s) {
+  const map = { pending: "待审核", approved: "进行中", rejected: "已驳回", closed: "已满额" };
+  return `<span class="tag">${map[s] || s}</span>`;
+}
+function claimStatusTag(s) {
+  const map = { pending: "待审核", approved: "已通过", rejected: "已驳回" };
+  return `<span class="tag">${map[s] || s}</span>`;
+}
+async function loadAdminBounties() {
+  if (!authed()) return;
+  try {
+    const rows = await api("/api/admin/bounties");
+    $("admin-bounty-list").innerHTML = rows.map((b) => `
+      <div style="padding:10px 0;border-bottom:1px solid #e5e7eb">
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <b>${esc(b.title)}</b>${bountyStatusTag(b.status)}
+          <span class="muted">目标 ${b.target_date || "—"} · 达成 ${b.claimed_count}/${b.max_claims}</span>
+        </div>
+        <div class="muted" style="margin:4px 0">${esc(b.description)}</div>
+        ${b.reward ? `<div class="muted">奖励：${esc(b.reward)}</div>` : ""}
+        <div class="muted">提交人：${esc(b.submitter_nickname || "匿名")}${b.submitter_account_id ? `（雀魂ID ${b.submitter_account_id}）` : ""}</div>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
+          <label class="muted">达成次数 <input type="number" min="1" value="${b.max_claims}" data-max="${b.id}" style="width:64px"></label>
+          <button class="btn" data-save-max="${b.id}">保存次数</button>
+          ${b.status !== "approved" ? `<button class="btn primary" data-bounty-status="${b.id}:approved">通过</button>` : ""}
+          ${b.status !== "rejected" && b.status !== "closed" ? `<button class="btn" data-bounty-status="${b.id}:rejected">驳回</button>` : ""}
+          ${b.status === "approved" ? `<button class="btn" data-bounty-status="${b.id}:closed">关闭</button>` : ""}
+        </div>
+      </div>`).join("") || `<span class="muted">暂无悬赏</span>`;
+    $("admin-bounty-list").querySelectorAll("[data-save-max]").forEach((btn) => btn.onclick = async () => {
+      if (!await guard()) return;
+      const val = +$("admin-bounty-list").querySelector(`[data-max="${btn.dataset.saveMax}"]`).value;
+      if (!(val >= 1)) { toast("次数至少为 1"); return; }
+      await api(`/api/admin/bounties/${btn.dataset.saveMax}`, { method: "PUT", headers: H(), body: JSON.stringify({ max_claims: val }) });
+      toast("已保存"); loadAdminBounties();
+    });
+    $("admin-bounty-list").querySelectorAll("[data-bounty-status]").forEach((btn) => btn.onclick = async () => {
+      if (!await guard()) return;
+      const [id, status] = btn.dataset.bountyStatus.split(":");
+      await api(`/api/admin/bounties/${id}`, { method: "PUT", headers: H(), body: JSON.stringify({ status }) });
+      toast("已更新"); loadAdminBounties();
+    });
+  } catch (e) { /* ignore */ }
+}
+async function loadAdminClaims() {
+  if (!authed()) return;
+  try {
+    const rows = await api("/api/admin/claims");
+    $("admin-claim-list").innerHTML = rows.map((c) => `
+      <div style="padding:10px 0;border-bottom:1px solid #e5e7eb">
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <b>${esc(c.bounty_title)}</b>${claimStatusTag(c.status)}
+          <span class="muted">${esc(c.submitter_nickname || "匿名")}${c.submitter_account_id ? `（雀魂ID ${c.submitter_account_id}）` : ""}</span>
+        </div>
+        <div style="margin:4px 0"><a href="${esc(c.share_url)}" target="_blank" rel="noopener">${esc(c.share_url)}</a></div>
+        ${c.note ? `<div class="muted">备注：${esc(c.note)}</div>` : ""}
+        <div style="display:flex;gap:8px;margin-top:8px">
+          ${c.status !== "approved" ? `<button class="btn primary" data-claim-status="${c.id}:approved">通过</button>` : ""}
+          ${c.status !== "rejected" ? `<button class="btn" data-claim-status="${c.id}:rejected">驳回</button>` : ""}
+        </div>
+      </div>`).join("") || `<span class="muted">暂无提交</span>`;
+    $("admin-claim-list").querySelectorAll("[data-claim-status]").forEach((btn) => btn.onclick = async () => {
+      if (!await guard()) return;
+      const [id, status] = btn.dataset.claimStatus.split(":");
+      await api(`/api/admin/claims/${id}`, { method: "PUT", headers: H(), body: JSON.stringify({ status }) });
+      toast("已更新"); loadAdminClaims(); loadAdminBounties();
+    });
+  } catch (e) { /* ignore */ }
+}
+
+async function loadAll() { await loadLeague(); await loadTeams(); await loadPlayers(); loadRuns(); loadAutoSync(); loadAdminBounties(); loadAdminClaims(); }
 loadAll().catch((e) => toast(e.message));
 </script>
 </body>

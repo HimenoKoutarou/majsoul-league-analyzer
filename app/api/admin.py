@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 import app.config as config
 from app.api.auth import current_user
 from app.db import get_db
-from app.models import Game, League, Player, SyncRun, Team
+from app.models import Bounty, BountyClaim, Game, League, Player, SyncRun, Team
 from app.services.ninklang import fetch_tenhou
 from app.services.paipu.ingest import ingest_tenhou_game
 
@@ -262,3 +262,96 @@ def search_player(body: dict):
         return {"results": asyncio.run(_main())}
     except Exception as exc:
         raise HTTPException(502, f"查询失败：{exc}")
+
+
+@router.get("/bounties", dependencies=[Depends(require_admin)])
+def admin_list_bounties(db: Session = Depends(get_db)):
+    rows = db.query(Bounty).order_by(Bounty.created_at.desc()).all()
+    out = []
+    for b in rows:
+        count = (db.query(BountyClaim)
+                 .filter(BountyClaim.bounty_id == b.id,
+                         BountyClaim.status == "approved").count())
+        out.append({
+            "id": b.id, "title": b.title, "description": b.description,
+            "reward": b.reward,
+            "target_date": b.target_date.isoformat() if b.target_date else None,
+            "max_claims": b.max_claims, "status": b.status,
+            "claimed_count": count,
+            "submitter_nickname": b.submitter_nickname,
+            "submitter_account_id": b.submitter_account_id,
+            "created_at": b.created_at.isoformat() if b.created_at else None,
+        })
+    return out
+
+
+@router.put("/bounties/{bounty_id}", dependencies=[Depends(require_admin)])
+def admin_update_bounty(bounty_id: int, body: dict, db: Session = Depends(get_db)):
+    from datetime import datetime
+
+    bounty = db.get(Bounty, bounty_id)
+    if not bounty:
+        raise HTTPException(404, "悬赏不存在")
+    for key in ("title", "description", "reward"):
+        if key in body and body[key] is not None:
+            setattr(bounty, key, str(body[key]).strip())
+    if "target_date" in body:
+        try:
+            bounty.target_date = datetime.strptime(
+                str(body["target_date"]), "%Y-%m-%d").date()
+        except (ValueError, TypeError):
+            pass
+    if "max_claims" in body and isinstance(body["max_claims"], int) and body["max_claims"] >= 1:
+        bounty.max_claims = body["max_claims"]
+    if "status" in body and body["status"] in ("pending", "approved", "rejected", "closed"):
+        bounty.status = body["status"]
+        if body["status"] in ("approved", "rejected"):
+            bounty.reviewed_at = datetime.now()
+    db.commit()
+    if bounty.status == "approved":
+        count = (db.query(BountyClaim)
+                 .filter(BountyClaim.bounty_id == bounty.id,
+                         BountyClaim.status == "approved").count())
+        if count >= bounty.max_claims:
+            bounty.status = "closed"
+            db.commit()
+    return {"ok": True}
+
+
+@router.get("/claims", dependencies=[Depends(require_admin)])
+def admin_list_claims(db: Session = Depends(get_db)):
+    rows = (db.query(BountyClaim, Bounty)
+            .join(Bounty, BountyClaim.bounty_id == Bounty.id)
+            .order_by(BountyClaim.created_at.desc()).all())
+    return [{
+        "id": c.id, "bounty_id": c.bounty_id, "bounty_title": b.title,
+        "share_url": c.share_url, "note": c.note,
+        "submitter_nickname": c.submitter_nickname,
+        "submitter_account_id": c.submitter_account_id,
+        "status": c.status,
+        "created_at": c.created_at.isoformat() if c.created_at else None,
+    } for c, b in rows]
+
+
+@router.put("/claims/{claim_id}", dependencies=[Depends(require_admin)])
+def admin_update_claim(claim_id: int, body: dict, db: Session = Depends(get_db)):
+    from datetime import datetime
+
+    claim = db.get(BountyClaim, claim_id)
+    if not claim:
+        raise HTTPException(404, "提交不存在")
+    if "status" in body and body["status"] in ("pending", "approved", "rejected"):
+        claim.status = body["status"]
+        if body["status"] in ("approved", "rejected"):
+            claim.reviewed_at = datetime.now()
+    db.commit()
+    if claim.status == "approved":
+        bounty = db.get(Bounty, claim.bounty_id)
+        if bounty and bounty.status == "approved":
+            count = (db.query(BountyClaim)
+                     .filter(BountyClaim.bounty_id == bounty.id,
+                             BountyClaim.status == "approved").count())
+            if count >= bounty.max_claims:
+                bounty.status = "closed"
+                db.commit()
+    return {"ok": True}

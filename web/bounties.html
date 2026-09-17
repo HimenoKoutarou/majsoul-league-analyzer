@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>悬赏板</title>
+<link rel="stylesheet" href="/static/css/main.css">
+</head>
+<body>
+<nav class="nav">
+  <span class="brand">联赛</span>
+  <a href="/">首页</a><a href="/games">对局</a>
+  <a href="/analysis">分析</a><a href="/bounties" class="active">悬赏</a>
+  <a href="/admin">管理</a>
+</nav>
+<div class="container">
+  <h1>悬赏板</h1>
+  <div class="grid-2">
+    <div id="bounty-list"><div class="muted">加载中…</div></div>
+    <div>
+      <div class="card">
+        <h2>发起悬赏</h2>
+        <p class="muted">目标日期前可提交悬赏，管理员审核通过后展示；目标日期后其他玩家可提交达成牌谱。</p>
+        <form id="bounty-form">
+          <p><label style="display:block">标题 <input id="b-title" style="width:100%" required></label></p>
+          <p><label style="display:block">达成条件 <textarea id="b-desc" rows="3" style="width:100%" required></textarea></label></p>
+          <p><label style="display:block">奖励说明（可选） <input id="b-reward" style="width:100%"></label></p>
+          <p><label style="display:block">目标日期 <input id="b-date" type="date" style="width:100%" required></label></p>
+          <p><label style="display:block">你的昵称 <input id="b-nick" style="width:100%"></label></p>
+          <p><label style="display:block">雀魂ID <input id="b-account" type="number" style="width:100%"></label></p>
+          <button class="btn primary" type="submit">提交悬赏（待审核）</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+<script type="module">
+import { api, esc, toast } from "/static/js/api.js";
+
+const $ = (id) => document.getElementById(id);
+const today = () => new Date().toISOString().slice(0, 10);
+
+function statusTag(b) {
+  if (b.status === "closed") return `<span class="tag">已满额</span>`;
+  if (b.status === "approved") return `<span class="tag win">进行中</span>`;
+  return "";
+}
+
+async function loadBounties() {
+  const bounties = await api("/api/bounties");
+  const el = $("bounty-list");
+  if (!bounties.length) {
+    el.innerHTML = `<div class="card muted">暂无已审核悬赏</div>`;
+    return;
+  }
+  el.innerHTML = bounties.map((b) => {
+    const canClaim = b.status === "approved" && b.target_date <= today() && b.claimed_count < b.max_claims;
+    return `
+    <div class="card" style="margin-bottom:16px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <b>${esc(b.title)}</b>${statusTag(b)}
+      </div>
+      <div class="muted" style="margin-top:4px">提交人：${esc(b.submitted_by || "匿名")}</div>
+      <p style="margin:10px 0 4px">${esc(b.description)}</p>
+      ${b.reward ? `<p class="muted" style="margin:4px 0">奖励：${esc(b.reward)}</p>` : ""}
+      <p class="muted" style="margin:4px 0">目标日期 ${b.target_date} · 已达成 ${b.claimed_count} / ${b.max_claims}</p>
+      ${canClaim ? `
+      <div style="margin-top:12px;padding-top:12px;border-top:1px solid #e5e7eb">
+        <div class="muted" style="margin-bottom:6px">提交达成牌谱</div>
+        <input class="c-url" placeholder="雀魂牌谱链接" style="width:100%;margin-bottom:6px">
+        <div style="display:flex;gap:6px;margin-bottom:6px">
+          <input class="c-nick" placeholder="昵称" style="flex:1">
+          <input class="c-account" type="number" placeholder="雀魂ID" style="flex:1">
+        </div>
+        <input class="c-note" placeholder="备注（可选）" style="width:100%;margin-bottom:8px">
+        <button class="btn primary" data-claim="${b.id}">提交牌谱（待审核）</button>
+      </div>` : ""}
+    </div>`;
+  }).join("");
+  el.querySelectorAll("[data-claim]").forEach((btn) => btn.onclick = () => submitClaim(btn));
+}
+
+async function submitClaim(btn) {
+  const id = btn.dataset.claim;
+  const card = btn.closest(".card");
+  const share_url = card.querySelector(".c-url").value.trim();
+  const nickname = card.querySelector(".c-nick").value.trim();
+  const account_id = card.querySelector(".c-account").value.trim();
+  const note = card.querySelector(".c-note").value.trim();
+  if (!share_url) { toast("请填牌谱链接"); return; }
+  try {
+    await api(`/api/bounties/${id}/claims`, { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ share_url, nickname, account_id, note }) });
+    toast("已提交，等待管理员审核");
+    loadBounties();
+  } catch (e) { toast("失败：" + e.message, 4000); }
+}
+
+$("bounty-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const payload = {
+    title: $("b-title").value.trim(),
+    description: $("b-desc").value.trim(),
+    reward: $("b-reward").value.trim(),
+    target_date: $("b-date").value,
+    nickname: $("b-nick").value.trim(),
+    account_id: $("b-account").value.trim(),
+  };
+  try {
+    await api("/api/bounties", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload) });
+    toast("悬赏已提交，等待管理员审核");
+    e.target.reset();
+  } catch (err) { toast("失败：" + err.message, 4000); }
+});
+
+loadBounties().catch((e) => toast(e.message));
+</script>
+</body>
+</html>

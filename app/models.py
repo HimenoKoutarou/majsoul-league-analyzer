@@ -1,7 +1,7 @@
 """数据库模型。Player 以代理主键 + account_id 唯一索引（ninklang 通道无 account_id）。"""
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import (JSON, BigInteger, Boolean, DateTime, Float, ForeignKey,
+from sqlalchemy import (JSON, BigInteger, Boolean, Date, DateTime, Float, ForeignKey,
                         Integer, String, Text, UniqueConstraint)
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -84,3 +84,33 @@ class SyncRun(Base):
     detail: Mapped[dict] = mapped_column(JSON, default=dict)
     started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class Bounty(Base):
+    """悬赏：目标日期前提交、管理员审核后展示、目标日期后开放牌谱提交。"""
+    __tablename__ = "bounties"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    title: Mapped[str] = mapped_column(String(128))
+    description: Mapped[str] = mapped_column(Text)
+    reward: Mapped[str] = mapped_column(String(255), default="")
+    target_date: Mapped[date] = mapped_column(Date)
+    max_claims: Mapped[int] = mapped_column(Integer, default=1)
+    status: Mapped[str] = mapped_column(String(16), default="pending")  # pending/approved/rejected/closed
+    submitter_nickname: Mapped[str] = mapped_column(String(64), default="")
+    submitter_account_id: Mapped[int | None] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class BountyClaim(Base):
+    """牌谱提交（达成悬赏的凭证），审核通过计入一次达成。"""
+    __tablename__ = "bounty_claims"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    bounty_id: Mapped[int] = mapped_column(ForeignKey("bounties.id", ondelete="CASCADE"), index=True)
+    share_url: Mapped[str] = mapped_column(String(512))
+    submitter_nickname: Mapped[str] = mapped_column(String(64), default="")
+    submitter_account_id: Mapped[int | None] = mapped_column(BigInteger)
+    note: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(16), default="pending")  # pending/approved/rejected
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime)

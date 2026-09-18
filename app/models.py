@@ -114,3 +114,28 @@ class BountyClaim(Base):
     status: Mapped[str] = mapped_column(String(16), default="pending")  # pending/approved/rejected
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class Captain(Base):
+    """队伍队长账号：管理员后台创建，队长登录后管理本队出战名单。"""
+    __tablename__ = "captains"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    team_id: Mapped[int] = mapped_column(
+        ForeignKey("teams.id", ondelete="CASCADE"), unique=True, index=True)
+    username: Mapped[str] = mapped_column(String(64), unique=True)
+    password_hash: Mapped[str] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+
+class Lineup(Base):
+    """出战名单：比赛日每天两场（slot 1/2），各一份 4 人名单，18:00 截止锁定。"""
+    __tablename__ = "lineups"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    team_id: Mapped[int] = mapped_column(ForeignKey("teams.id", ondelete="CASCADE"), index=True)
+    match_date: Mapped[date] = mapped_column(Date)
+    slot: Mapped[int] = mapped_column(Integer)  # 1=第一场 2=第二场
+    player_ids: Mapped[list] = mapped_column(JSON, default=list)  # 4 个 player id
+    submitted_by: Mapped[str] = mapped_column(String(64), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
+    __table_args__ = (UniqueConstraint("team_id", "match_date", "slot",
+                                       name="uq_lineup_team_date_slot"),)

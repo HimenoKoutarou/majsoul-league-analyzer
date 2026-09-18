@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>出战名单</title>
+<link rel="stylesheet" href="/static/css/main.css">
+<style>
+  table.ln { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
+  table.ln th, table.ln td { border: 1px solid #e5e7eb; padding: 8px 10px; font-size: 14px; text-align: left; }
+  table.ln th { background: var(--card2); }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
+</style>
+</head>
+<body>
+<nav class="nav">
+  <span class="brand">联赛</span>
+  <a href="/">首页</a><a href="/games">对局</a>
+  <a href="/analysis">分析</a><a href="/lineups" class="active">出战名单</a><a href="/bounties">悬赏</a><a href="/captain">队长</a><a href="/admin">管理</a>
+</nav>
+<div class="container">
+  <h1>出战名单</h1>
+  <p id="meta" class="muted">加载中…</p>
+  <div id="tables"></div>
+</div>
+<script type="module">
+import { api, esc } from "/static/js/api.js";
+
+const $ = (id) => document.getElementById(id);
+
+async function main() {
+  const data = await api("/api/captain/public/lineups");
+  $("meta").innerHTML = `<b>${data.date} ${data.weekday}</b>` +
+    (data.locked
+      ? ` · <span style="color:#b91c1c">名单已公开（18:00 截止后生效）</span>`
+      : ` · 名单尚未公开（比赛日 18:00 截止后展示）`);
+  const first = data.rows.filter((r) => r.slot === 1);
+  const second = data.rows.filter((r) => r.slot === 2);
+  const render = (slot, rows) => `
+    <h3>${slot === 1 ? "第一场" : "第二场"}</h3>
+    <table class="ln">
+      <tr><th>队伍</th><th>出战选手</th><th>状态</th></tr>
+      ${rows.map((r) => `
+        <tr>
+          <td><span class="dot" style="background:${esc(r.color)}"></span><b>${esc(r.team_name)}</b></td>
+          <td>${!data.locked
+            ? '<span class="muted">未公开</span>'
+            : r.submitted
+              ? r.players.map((p) => esc(p.nickname)).join("、")
+              : '<span class="muted">未提交</span>'}</td>
+          <td>${!data.locked
+            ? `<span class="tag">待公开</span>`
+            : r.submitted ? `<span class="tag win">已提交</span>` : `<span class="tag">未提交</span>`}</td>
+        </tr>`).join("")}
+    </table>`;
+  $("tables").innerHTML = render(1, first) + render(2, second);
+}
+
+main().catch((e) => {
+  $("meta").textContent = "加载失败：" + e.message;
+});
+</script>
+</body>
+</html>

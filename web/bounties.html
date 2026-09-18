@@ -10,28 +10,35 @@
 <nav class="nav">
   <span class="brand">联赛</span>
   <a href="/">首页</a><a href="/games">对局</a>
-  <a href="/analysis">分析</a><a href="/bounties" class="active">悬赏</a>
-  <a href="/admin">管理</a>
+  <a href="/analysis">分析</a><a href="/lineups">出战名单</a><a href="/bounties" class="active">悬赏</a><a href="/captain">队长</a><a href="/admin">管理</a>
 </nav>
 <div class="container">
   <h1>悬赏板</h1>
-  <div class="grid-2">
-    <div id="bounty-list"><div class="muted">加载中…</div></div>
-    <div>
-      <div class="card">
-        <h2>发起悬赏</h2>
-        <p class="muted">目标日期前可提交悬赏，管理员审核通过后展示；目标日期后其他玩家可提交达成牌谱。</p>
-        <form id="bounty-form">
-          <p><label style="display:block">标题 <input id="b-title" style="width:100%" required></label></p>
-          <p><label style="display:block">达成条件 <textarea id="b-desc" rows="3" style="width:100%" required></textarea></label></p>
-          <p><label style="display:block">奖励说明（可选） <input id="b-reward" style="width:100%"></label></p>
-          <p><label style="display:block">目标日期 <input id="b-date" type="date" style="width:100%" required></label></p>
-          <p><label style="display:block">你的昵称 <input id="b-nick" style="width:100%"></label></p>
-          <p><label style="display:block">雀魂ID <input id="b-account" type="number" style="width:100%"></label></p>
-          <button class="btn primary" type="submit">提交悬赏（待审核）</button>
-        </form>
+
+  <div id="view-list">
+    <div class="grid-2">
+      <div id="bounty-list"><div class="muted">加载中…</div></div>
+      <div>
+        <div class="card">
+          <h2>发起悬赏</h2>
+          <p class="muted">目标日期前可提交悬赏，管理员审核通过后展示；目标日期后其他玩家可进入悬赏提交达成牌谱。</p>
+          <form id="bounty-form">
+            <p><label style="display:block">标题 <input id="b-title" style="width:100%" required></label></p>
+            <p><label style="display:block">达成条件 <textarea id="b-desc" rows="3" style="width:100%" required></textarea></label></p>
+            <p><label style="display:block">奖励说明（可选） <input id="b-reward" style="width:100%"></label></p>
+            <p><label style="display:block">目标日期 <input id="b-date" type="date" style="width:100%" required></label></p>
+            <p><label style="display:block">你的昵称 <input id="b-nick" style="width:100%"></label></p>
+            <p><label style="display:block">雀魂ID <input id="b-account" type="number" style="width:100%"></label></p>
+            <button class="btn primary" type="submit">提交悬赏（待审核）</button>
+          </form>
+        </div>
       </div>
     </div>
+  </div>
+
+  <div id="view-detail" style="display:none">
+    <p><button class="btn" id="back-btn">← 返回悬赏列表</button></p>
+    <div id="detail-card"></div>
   </div>
 </div>
 <script type="module">
@@ -46,6 +53,16 @@ function statusTag(b) {
   return "";
 }
 
+function claimRows(claims) {
+  if (!claims.length) return `<div class="muted">暂无已审核的达成记录</div>`;
+  return claims.map((c) => `
+    <div style="padding:6px 0;border-bottom:1px solid #e5e7eb">
+      <b>${esc(c.submitter_nickname || "匿名")}</b>
+      ${c.note ? `<span class="muted">：${esc(c.note)}</span>` : ""}
+      <span class="muted" style="float:right">${(c.created_at || "").replace("T", " ").slice(0, 16)}</span>
+    </div>`).join("");
+}
+
 async function loadBounties() {
   const bounties = await api("/api/bounties");
   const el = $("bounty-list");
@@ -53,48 +70,80 @@ async function loadBounties() {
     el.innerHTML = `<div class="card muted">暂无已审核悬赏</div>`;
     return;
   }
-  el.innerHTML = bounties.map((b) => {
-    const canClaim = b.status === "approved" && b.target_date <= today() && b.claimed_count < b.max_claims;
-    return `
-    <div class="card" style="margin-bottom:16px">
-      <div style="display:flex;align-items:center;gap:10px">
-        <b>${esc(b.title)}</b>${statusTag(b)}
+  el.innerHTML = bounties.map((b) => `
+    <div class="card" data-open="${b.id}" style="margin-bottom:16px;cursor:pointer">
+      <div style="display:flex;align-items:center;gap:10px;justify-content:space-between">
+        <div><b>${esc(b.title)}</b>${statusTag(b)}</div>
+        <span class="btn">查看详情</span>
       </div>
       <div class="muted" style="margin-top:4px">提交人：${esc(b.submitted_by || "匿名")}</div>
       <p style="margin:10px 0 4px">${esc(b.description)}</p>
       ${b.reward ? `<p class="muted" style="margin:4px 0">奖励：${esc(b.reward)}</p>` : ""}
       <p class="muted" style="margin:4px 0">目标日期 ${b.target_date} · 已达成 ${b.claimed_count} / ${b.max_claims}</p>
-      ${canClaim ? `
-      <div style="margin-top:12px;padding-top:12px;border-top:1px solid #e5e7eb">
-        <div class="muted" style="margin-bottom:6px">提交达成牌谱</div>
-        <input class="c-url" placeholder="雀魂牌谱链接" style="width:100%;margin-bottom:6px">
-        <div style="display:flex;gap:6px;margin-bottom:6px">
-          <input class="c-nick" placeholder="昵称" style="flex:1">
-          <input class="c-account" type="number" placeholder="雀魂ID" style="flex:1">
-        </div>
-        <input class="c-note" placeholder="备注（可选）" style="width:100%;margin-bottom:8px">
-        <button class="btn primary" data-claim="${b.id}">提交牌谱（待审核）</button>
-      </div>` : ""}
-    </div>`;
-  }).join("");
-  el.querySelectorAll("[data-claim]").forEach((btn) => btn.onclick = () => submitClaim(btn));
+    </div>`).join("");
+  el.querySelectorAll("[data-open]").forEach((c) =>
+    c.onclick = () => { location.hash = `#/${c.dataset.open}`; });
 }
 
-async function submitClaim(btn) {
-  const id = btn.dataset.claim;
-  const card = btn.closest(".card");
-  const share_url = card.querySelector(".c-url").value.trim();
-  const nickname = card.querySelector(".c-nick").value.trim();
-  const account_id = card.querySelector(".c-account").value.trim();
-  const note = card.querySelector(".c-note").value.trim();
+async function showDetail(id) {
+  const list = await api("/api/bounties");
+  const b = list.find((x) => x.id === id);
+  if (!b) { toast("悬赏不存在或未开放"); location.hash = ""; return; }
+  $("view-list").style.display = "none";
+  $("view-detail").style.display = "";
+  const claims = await api(`/api/bounties/${id}/claims`);
+  const canClaim = b.status === "approved" && b.target_date <= today() && b.claimed_count < b.max_claims;
+  $("detail-card").innerHTML = `
+    <div class="card">
+      <h2>${esc(b.title)}${statusTag(b)}</h2>
+      <div class="muted" style="margin-top:4px">提交人：${esc(b.submitted_by || "匿名")}</div>
+      <p style="margin:10px 0 4px">${esc(b.description)}</p>
+      ${b.reward ? `<p class="muted" style="margin:4px 0">奖励：${esc(b.reward)}</p>` : ""}
+      <p class="muted" style="margin:4px 0">目标日期 ${b.target_date} · 已达成 ${b.claimed_count} / ${b.max_claims}</p>
+      <hr>
+      <h3>已达成的牌谱</h3>
+      <div>${claimRows(claims)}</div>
+      ${canClaim ? `
+        <hr>
+        <h3>提交你的达成牌谱</h3>
+        <input id="d-url" placeholder="雀魂牌谱链接" style="width:100%;margin-bottom:6px">
+        <div style="display:flex;gap:6px;margin-bottom:6px">
+          <input id="d-nick" placeholder="昵称" style="flex:1">
+          <input id="d-account" type="number" placeholder="雀魂ID" style="flex:1">
+        </div>
+        <input id="d-note" placeholder="备注（可选）" style="width:100%;margin-bottom:8px">
+        <button class="btn primary" id="d-submit">提交牌谱（待审核）</button>` : ""}
+    </div>`;
+  if (canClaim) $("d-submit").onclick = () => submitClaim(id);
+}
+
+async function submitClaim(id) {
+  const share_url = $("d-url").value.trim();
+  const nickname = $("d-nick").value.trim();
+  const account_id = $("d-account").value.trim();
+  const note = $("d-note").value.trim();
   if (!share_url) { toast("请填牌谱链接"); return; }
   try {
-    await api(`/api/bounties/${id}/claims`, { method: "POST", headers: { "Content-Type": "application/json" },
+    await api(`/api/bounties/${id}/claims`, { method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ share_url, nickname, account_id, note }) });
     toast("已提交，等待管理员审核");
-    loadBounties();
+    showDetail(id);
   } catch (e) { toast("失败：" + e.message, 4000); }
 }
+
+function showList() {
+  $("view-detail").style.display = "none";
+  $("view-list").style.display = "";
+}
+$("back-btn").onclick = () => { location.hash = ""; };
+
+function route() {
+  const h = location.hash.replace(/^#\/?/, "");
+  if (/^\d+$/.test(h)) showDetail(+h).catch((e) => toast(e.message));
+  else { showList(); loadBounties().catch((e) => toast(e.message)); }
+}
+window.addEventListener("hashchange", route);
 
 $("bounty-form").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -114,7 +163,7 @@ $("bounty-form").addEventListener("submit", async (e) => {
   } catch (err) { toast("失败：" + err.message, 4000); }
 });
 
-loadBounties().catch((e) => toast(e.message));
+route();
 </script>
 </body>
 </html>

@@ -10,7 +10,7 @@
 <nav class="nav">
   <span class="brand">联赛</span>
   <a href="/">首页</a><a href="/games">对局</a>
-  <a href="/analysis">分析</a><a href="/admin" class="active">管理</a>
+  <a href="/analysis">分析</a><a href="/lineups">出战名单</a><a href="/bounties">悬赏</a><a href="/captain">队长</a><a href="/admin" class="active">管理</a>
   <span class="muted" id="whoami" style="margin-left:auto"></span>
   <button class="btn" id="logout-btn" style="margin-left:8px">登出</button>
 </nav>
@@ -48,12 +48,18 @@
        <input id="team-color" type="color" value="#5b8cff">
        <button class="btn" id="team-add">添加</button></p>
     <hr>
+    <h3>队长账号（队长用账号密码登录后提交出战名单）</h3>
+    <div id="captain-list" style="margin-bottom:16px"></div>
+    <hr>
     <h3>选手名单</h3>
     <div id="player-list" style="margin-bottom:16px;max-height:420px;overflow:auto"></div>
     <p>新增：<input id="pl-nick" placeholder="昵称">
        <input id="pl-account" type="number" placeholder="雀魂ID(必填)" style="width:140px">
        <select id="pl-team"></select>
        <button class="btn" id="pl-add">添加</button></p>
+    <hr>
+    <h3>已提交的出战名单</h3>
+    <div id="admin-lineup-list"></div>
   </div>
 
   <div id="tab-bounties" class="card" style="display:none">
@@ -342,7 +348,46 @@ async function loadAdminClaims() {
   } catch (e) { /* ignore */ }
 }
 
-async function loadAll() { await loadLeague(); await loadTeams(); await loadPlayers(); loadRuns(); loadAutoSync(); loadAdminBounties(); loadAdminClaims(); }
+async function loadCaptains() {
+  if (!authed()) return;
+  try {
+    const rows = await api("/api/admin/captains");
+    $("captain-list").innerHTML = rows.map((t) => `
+      <div style="padding:8px 0;border-bottom:1px solid #e5e7eb;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <span class="team-dot" style="background:${t.color}"></span><b>${esc(t.team_name)}</b>
+        <input data-cap-user="${t.team_id}" placeholder="队长用户名" value="${esc(t.username || "")}" style="width:150px">
+        <input data-cap-pass="${t.team_id}" type="text" placeholder="新密码(≥6位)" style="width:150px">
+        <button class="btn primary" data-cap-save="${t.team_id}">${t.has_account ? "重置密码" : "创建账号"}</button>
+      </div>`).join("") || `<span class="muted">暂无队伍</span>`;
+    $("captain-list").querySelectorAll("[data-cap-save]").forEach((btn) => btn.onclick = async () => {
+      if (!await guard()) return;
+      const tid = btn.dataset.capSave;
+      const username = $("captain-list").querySelector(`[data-cap-user="${tid}"]`).value.trim();
+      const password = $("captain-list").querySelector(`[data-cap-pass="${tid}"]`).value;
+      if (!username || !password) { toast("需要用户名和密码"); return; }
+      try {
+        await api(`/api/admin/teams/${tid}/captain`, { method: "PUT", headers: H(),
+          body: JSON.stringify({ username, password }) });
+        toast(`已保存：${username}`);
+        loadCaptains();
+      } catch (e) { toast("失败：" + e.message, 4000); }
+    });
+  } catch (e) { /* ignore */ }
+}
+async function loadAdminLineups() {
+  if (!authed()) return;
+  try {
+    const rows = await api("/api/admin/lineups");
+    $("admin-lineup-list").innerHTML = rows.map((r) => `
+      <div class="muted" style="padding:4px 0;border-bottom:1px solid #e5e7eb">
+        ${r.date} 第${r.slot}场 · <b>${esc(r.team_name)}</b>：
+        ${r.players.map((p) => esc(p.nickname)).join("、")}
+        <span style="float:right">${esc(r.submitted_by)} · ${(r.updated_at || "").replace("T", " ").slice(0, 16)}</span>
+      </div>`).join("") || `<span class="muted">暂无提交</span>`;
+  } catch (e) { /* ignore */ }
+}
+
+async function loadAll() { await loadLeague(); await loadTeams(); await loadPlayers(); loadRuns(); loadAutoSync(); loadAdminBounties(); loadAdminClaims(); loadCaptains(); loadAdminLineups(); }
 loadAll().catch((e) => toast(e.message));
 </script>
 </body>

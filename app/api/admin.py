@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 import app.config as config
 from app.api.auth import current_user
 from app.db import get_db
-from app.models import Bounty, BountyClaim, Game, League, Player, SyncRun, Team
+from app.models import Bounty, BountyClaim, Captain, Game, League, Lineup, Player, SyncRun, Team
 from app.services.ninklang import fetch_tenhou
 from app.services.paipu.ingest import ingest_tenhou_game
 
@@ -355,3 +355,62 @@ def admin_update_claim(claim_id: int, body: dict, db: Session = Depends(get_db))
                 bounty.status = "closed"
                 db.commit()
     return {"ok": True}
+
+
+@router.get("/captains", dependencies=[Depends(require_admin)])
+def admin_list_captains(db: Session = Depends(get_db)):
+    """列出各队队长账号（含未创建的队伍）。"""
+    caps = {c.team_id: c for c in db.query(Captain).all()}
+    rows = (db.query(Team).order_by(Team.sort_order, Team.id).all())
+    return [{"team_id": t.id, "team_name": t.name, "color": t.color,
+             "username": caps[t.id].username if t.id in caps else None,
+             "has_account": t.id in caps}
+            for t in rows]
+
+
+@router.put("/teams/{team_id}/captain", dependencies=[Depends(require_admin)])
+def admin_upsert_captain(team_id: int, body: dict, db: Session = Depends(get_db)):
+    """创建/重置某队队长账号密码。"""
+    from app.api.captain import _hash_password
+
+    team = db.get(Team, team_id)
+    if not team:
+        raise HTTPException(404, "队伍不存在")
+    username = str(body.get("username") or "").strip()
+    password = str(body.get("password") or "")
+    if len(username) < 3:
+        raise HTTPException(422, "用户名至少 3 个字符")
+    if len(password) < 6:
+        raise HTTPException(422, "密码至少 6 个字符")
+    captain = db.query(Captain).filter(Captain.team_id == team.id).first()
+    if captain and captain.username != username:
+        # 换用户名：释放旧用户名
+        if db.query(Captain).filter(Captain.username == username).first():
+            raise HTTPException(422, "该用户名已被使用")
+    if not captain:
+        if db.query(Captain).filter(Captain.username == username).first():
+            raise HTTPException(422, "该用户名已被使用")
+        captain = Captain(team_id=team.id, username=username)
+        db.add(captain)
+    captain.username = username
+    captain.password_hash = _hash_password(username, password)
+    db.commit()
+    return {"ok": True, "team_id": team.id, "username": username}
+
+
+@router.get("/lineups", dependencies=[Depends(require_admin)])
+def admin_list_lineups(db: Session = Depends(get_db)):
+    """管理端查看全部出战名单（按比赛日倒序）。"""
+    from app.api.captain import _players_by_ids
+
+    rows = db.query(Lineup).order_by(Lineup.match_date.desc(),
+                                     Lineup.team_id, Lineup.slot).all()
+    teams = {t.id: t for t in db.query(Team).all()}
+    return [{
+        "id": lu.id, "team_id": lu.team_id,
+        "team_name": teams[lu.team_id].name if lu.team_id in teams else "?",
+        "date": lu.match_date.isoformat(), "slot": lu.slot,
+        "players": _players_by_ids(db, lu.player_ids),
+        "submitted_by": lu.submitted_by,
+        "updated_at": lu.updated_at.isoformat() if lu.updated_at else None,
+    } for lu in rows]

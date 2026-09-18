@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>出战名单管理</title>
+<link rel="stylesheet" href="/static/css/main.css">
+<style>
+  .slot-card { border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  .pick { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
+  .pick label { display: flex; align-items: center; gap: 6px; background: var(--card2); padding:
+    6px 12px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+  .pick input { accent-color: var(--accent); }
+  .pick label.on { background: #dbeafe; color: #1d4ed8; }
+  .locked-tip { color: #b91c1c; font-weight: 600; }
+</style>
+</head>
+<body>
+<nav class="nav">
+  <span class="brand">联赛</span>
+  <a href="/">首页</a><a href="/games">对局</a>
+  <a href="/analysis">分析</a><a href="/bounties">悬赏</a>
+  <a href="/lineups">出战名单</a><a href="/captain" class="active">队长</a><a href="/admin">管理</a>
+  <span class="muted" id="whoami" style="margin-left:auto"></span>
+  <button class="btn" id="logout-btn" style="margin-left:8px">登出</button>
+</nav>
+<div class="container">
+  <h1>队长工作台</h1>
+
+  <div id="team-card" style="display:none"></div>
+
+  <h2 style="margin-top:24px">出战名单</h2>
+  <p class="muted">比赛日为每周三 / 周五 / 周日，每天两场（第一场、第二场）各提交 1 名出战选手；
+    比赛日 18:00 截止并公开名单，截止后不可修改；提交后立即生效，无需审核。</p>
+
+  <div class="tabs" id="matchday-tabs"></div>
+
+  <div id="lineup-area"><div class="muted">请选择比赛日…</div></div>
+</div>
+<script type="module">
+import { api, esc, toast } from "/static/js/api.js";
+
+const $ = (id) => document.getElementById(id);
+let playersCache = [];
+
+async function guard() {
+  try {
+    await api("/api/captain/me");
+    return true;
+  } catch (e) {
+    const next = encodeURIComponent(location.pathname + location.search);
+    location.href = `/captain/login?next=${next}`;
+    return false;
+  }
+}
+
+$("logout-btn").onclick = async () => {
+  await fetch("/api/captain/logout", { method: "POST", credentials: "same-origin" });
+  location.href = "/captain/login";
+};
+
+async function loadMe() {
+  const me = await api("/api/captain/me");
+  $("whoami").textContent = `${me.team_name} · ${me.username}`;
+  document.title = `${me.team_name} 队长工作台`;
+}
+
+async function loadTeam() {
+  const data = await api("/api/captain/team");
+  const t = data.team;
+  $("team-card").style.display = "";
+  $("team-card").innerHTML = `
+    <div class="card">
+      <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+        <img id="team-logo" style="width:64px;height:64px;border-radius:12px;object-fit:cover;display:${t.logo_path ? "block" : "none"}"
+             ${t.logo_path ? `src="${esc(t.logo_path)}"` : ""} alt="队标">
+        <div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <b style="font-size:18px">${esc(t.name)}</b>
+            <input id="t-name" value="${esc(t.name)}" style="width:140px">
+            <input id="t-short" placeholder="简称" value="${esc(t.short_name || "")}" style="width:80px">
+            <button class="btn primary" id="team-save">保存队伍信息</button>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+            <label class="muted" style="display:flex;align-items:center;gap:6px">
+              Logo <input type="file" id="t-logo" accept=".png,.jpg,.jpeg,.webp,.svg">
+            </label>
+          </div>
+        </div>
+      </div>
+      <hr>
+      <h3>本队成员（${data.members.length} 人）</h3>
+      <div id="roster-list" style="margin-bottom:10px"></div>
+      <div style="display:flex;gap:8px">
+        <input id="ro-nick" placeholder="昵称" style="flex:1">
+        <input id="ro-account" type="number" placeholder="雀魂ID(必填)" style="width:140px">
+        <button class="btn" id="ro-add">添加成员</button>
+      </div>
+    </div>`;
+
+  $("team-save").onclick = async () => {
+    const name = $("t-name").value.trim();
+    if (!name) { toast("队名不能为空"); return; }
+    await api("/api/captain/team", { method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, short_name: $("t-short").value.trim() }) });
+    toast("队伍信息已保存"); loadTeam(); loadMe();
+  };
+  $("t-logo").onchange = async (e) => {
+    if (!e.target.files[0]) return;
+    const fd = new FormData();
+    fd.append("file", e.target.files[0]);
+    const resp = await fetch("/api/captain/logo", { method: "POST", credentials: "same-origin", body: fd });
+    if (resp.status === 401) { toast("请重新登录"); location.href = "/captain/login"; return; }
+    if (!resp.ok) { let m = `HTTP ${resp.status}`; try { m = (await resp.json()).detail || m; } catch (_) {} toast("上传失败：" + m); return; }
+    toast("Logo 已更新"); loadTeam();
+  };
+  renderRoster(data.members);
+  $("ro-add").onclick = async () => {
+    const nick = $("ro-nick").value.trim();
+    const account = $("ro-account").value.trim();
+    if (!nick) { toast("昵称不能为空"); return; }
+    if (!account || +account <= 0) { toast("雀魂ID必填"); return; }
+    try {
+      await api("/api/captain/players", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nickname: nick, account_id: +account }) });
+      toast("已添加成员"); loadTeam();
+    } catch (e) { toast("失败：" + e.message, 4000); }
+  };
+}
+
+function renderRoster(members) {
+  $("roster-list").innerHTML = members.map((m) => `
+    <div style="display:flex;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid #e5e7eb">
+      <b>${esc(m.nickname)}</b><span class="muted">雀魂ID ${m.account_id ?? "—"}</span>
+      <button class="btn" style="margin-left:auto" data-rm="${m.id}">移除</button>
+    </div>`).join("") || `<span class="muted">暂无成员</span>`;
+  $("roster-list").querySelectorAll("[data-rm]").forEach((btn) => btn.onclick = async () => {
+    if (!confirm("确认移除该成员？")) return;
+    try {
+      await api(`/api/captain/players/${btn.dataset.rm}`, { method: "DELETE" });
+      toast("已移除"); loadTeam();
+    } catch (e) { toast("失败：" + e.message, 4000); }
+  });
+}
+
+async function loadMatchdays() {
+  const days = await api("/api/captain/matchdays?count=6");
+  $("matchday-tabs").innerHTML = days.map((d, i) => `
+    <button class="btn ${i === 0 ? "on" : ""}" data-date="${d.date}">
+      ${d.date} ${d.weekday}${d.locked ? "（已截止）" : ""}
+    </button>`).join("");
+  const btns = $("matchday-tabs").querySelectorAll("[data-date]");
+  btns.forEach((b) => b.onclick = () => {
+    btns.forEach((x) => x.classList.remove("on"));
+    b.classList.add("on");
+    loadLineups(b.dataset.date);
+  });
+  if (days.length) loadLineups(days[0].date);
+}
+
+async function loadLineups(date) {
+  const [data, players] = await Promise.all([
+    api(`/api/captain/lineups?date=${date}`),
+    api("/api/captain/players"),
+  ]);
+  playersCache = players;
+  const locked = data.locked;
+  $("lineup-area").innerHTML = `
+    <p>
+      <b>${date} ${data.weekday}</b>
+      ${locked ? `<span class="locked-tip">· 名单已截止锁定（18:00 后不可修改）</span>`
+               : `<span class="tag win">可编辑（18:00 截止）</span>`}
+    </p>
+    ${data.slots.map((s) => slotCard(date, s, locked)).join("")}`;
+  document.querySelectorAll("[data-save]").forEach((btn) => btn.onclick = () => saveLineup(btn));
+}
+
+function slotCard(date, s, locked) {
+  const selId = (s.players || [])[0]?.id ?? null;
+  return `
+  <div class="slot-card">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <b>${s.slot === 1 ? "第一场" : "第二场"}</b>
+      ${s.submitted && s.updated_at
+        ? `<span class="muted">上次提交：${s.updated_at.replace("T", " ").slice(0, 16)}（${esc(s.submitted_by)}）</span>`
+        : `<span class="muted">尚未提交</span>`}
+    </div>
+    <div class="pick">${playersCache.map((p) => `
+      <label class="${selId === p.id ? "on" : ""}">
+        <input type="radio" name="slot-${date}-${s.slot}" value="${p.id}"
+               ${selId === p.id ? "checked" : ""} ${locked ? "disabled" : ""}>
+        ${esc(p.nickname)}<span class="muted">（${p.account_id ?? "—"}）</span>
+      </label>`).join("") || `<span class="muted">本队暂无选手，请先在管理后台添加</span>`}
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button class="btn primary" data-save="${date}:${s.slot}" ${locked ? "disabled" : ""}>
+        提交名单</button>
+      <span class="muted">每场 1 人 · 18:00 前可修改</span>
+    </div>
+  </div>`;
+}
+
+// 单选切换高亮
+document.addEventListener("change", (e) => {
+  if (e.target.type !== "radio") return;
+  const card = e.target.closest(".slot-card");
+  if (!card) return;
+  card.querySelectorAll(".pick label").forEach((l) =>
+    l.classList.toggle("on", l.querySelector("input").checked));
+});
+
+async function saveLineup(btn) {
+  if (!await guard()) return;
+  const [date, slot] = btn.dataset.save.split(":");
+  const card = btn.closest(".slot-card");
+  const input = card.querySelector("input[type=radio]:checked");
+  if (!input) { toast("请选择 1 名出战选手"); return; }
+  try {
+    await api("/api/captain/lineups", { method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ date, slot: +slot, player_ids: [+input.value] }) });
+    toast("名单已提交生效");
+    loadLineups(date);
+  } catch (e) { toast("失败：" + e.message, 4000); }
+}
+
+(async () => {
+  if (!(await guard())) return;
+  try {
+    $("lineup-area").innerHTML = `<div class="muted">加载中…</div>`;
+    await loadMe();
+    await loadTeam();
+    await loadMatchdays();
+  } catch (e) { toast(e.message); }
+})();
+</script>
+</body>
+</html>

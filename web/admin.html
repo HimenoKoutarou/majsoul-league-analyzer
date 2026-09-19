@@ -49,6 +49,8 @@
        <button class="btn" id="team-add">添加</button></p>
     <hr>
     <h3>队长账号（队长用账号密码登录后提交出战名单）</h3>
+    <p class="muted">密码不会保存明文。创建队伍或重置密码后，请记录下面显示的凭据；页面刷新后如遗失，请再次重置密码。</p>
+    <div id="captain-credentials" style="display:none;margin-bottom:12px;padding:10px;background:#fff7ed;border:1px solid #fed7aa"></div>
     <div id="captain-list" style="margin-bottom:16px"></div>
     <hr>
     <h3>选手名单</h3>
@@ -185,7 +187,8 @@ $("team-add").onclick = async () => { if (!await guard()) return;
       body: JSON.stringify({ name: $("team-name").value, short_name: $("team-short").value,
         color: $("team-color").value }) });
     $("team-name").value = "";
-    toast(`队伍已创建。账号：${result.captain.username}，初始密码：${result.captain.password}`, 8000);
+    showCaptainCredentials("队伍已创建", result.captain.username, result.captain.password);
+    toast(`队伍已创建。账号：${result.captain.username}，初始密码已显示在队长账号区域`, 5000);
     loadTeams(); loadCaptains();
   } catch (e) { toast("创建失败：" + e.message, 4000); }
 };
@@ -353,6 +356,12 @@ async function loadAdminClaims() {
   } catch (e) { /* ignore */ }
 }
 
+function showCaptainCredentials(label, username, password) {
+  $("captain-credentials").style.display = "block";
+  $("captain-credentials").innerHTML =
+    `<b>${esc(label)}</b>：账号 <code>${esc(username)}</code>，密码 <code>${esc(password)}</code>`;
+}
+
 async function loadCaptains() {
   if (!authed()) return;
   try {
@@ -373,7 +382,8 @@ async function loadCaptains() {
       try {
         const result = await api(`/api/admin/teams/${tid}/captain`, { method: "PUT", headers: H(),
           body: JSON.stringify({ username, password }) });
-        toast(`已保存：${result.username}，新密码：${result.password}`, 8000);
+        showCaptainCredentials("队长密码已重置", result.username, result.password);
+        toast(`已保存：${result.username}，新密码已显示在队长账号区域`, 5000);
         loadCaptains();
       } catch (e) { toast("失败：" + e.message, 4000); }
     });

@@ -29,6 +29,14 @@
 
   <div id="team-card" style="display:none"></div>
 
+  <div class="card" style="margin-top:16px">
+    <h3>修改管理密码</h3>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <input id="new-password" type="password" minlength="6" placeholder="新密码（至少6位）">
+      <button class="btn" id="password-save">修改密码</button>
+    </div>
+  </div>
+
   <h2 style="margin-top:24px">出战名单</h2>
   <p class="muted">比赛日为每周三 / 周五 / 周日，每天两场（第一场、第二场）各提交 1 名出战选手；
     比赛日 18:00 截止并公开名单，截止后不可修改；提交后立即生效，无需审核。</p>
@@ -127,6 +135,17 @@ async function loadTeam() {
     } catch (e) { toast("失败：" + e.message, 4000); }
   };
 }
+
+$("password-save").onclick = async () => {
+  const password = $("new-password").value;
+  if (password.length < 6) { toast("密码至少 6 个字符"); return; }
+  try {
+    await api("/api/captain/password", { method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password }) });
+    $("new-password").value = "";
+    toast("管理密码已修改");
+  } catch (e) { toast("修改失败：" + e.message, 4000); }
+};
 
 function renderRoster(members) {
   $("roster-list").innerHTML = members.map((m) => `

@@ -180,10 +180,15 @@ async function loadTeams() {
     teams.map((t) => `<option value="${t.id}">${esc(t.name)}</option>`).join("");
 }
 $("team-add").onclick = async () => { if (!await guard()) return;
-  await api("/api/admin/teams", { method: "POST", headers: H(),
-    body: JSON.stringify({ name: $("team-name").value, short_name: $("team-short").value,
-      color: $("team-color").value }) });
-  $("team-name").value = ""; loadTeams(); };
+  try {
+    const result = await api("/api/admin/teams", { method: "POST", headers: H(),
+      body: JSON.stringify({ name: $("team-name").value, short_name: $("team-short").value,
+        color: $("team-color").value }) });
+    $("team-name").value = "";
+    toast(`队伍已创建。账号：${result.captain.username}，初始密码：${result.captain.password}`, 8000);
+    loadTeams(); loadCaptains();
+  } catch (e) { toast("创建失败：" + e.message, 4000); }
+};
 
 async function loadPlayers() {
   const teams = await api("/api/teams");
@@ -356,19 +361,19 @@ async function loadCaptains() {
       <div style="padding:8px 0;border-bottom:1px solid #e5e7eb;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         <span class="team-dot" style="background:${t.color}"></span><b>${esc(t.team_name)}</b>
         <input data-cap-user="${t.team_id}" placeholder="队长用户名" value="${esc(t.username || "")}" style="width:150px">
-        <input data-cap-pass="${t.team_id}" type="text" placeholder="新密码(≥6位)" style="width:150px">
-        <button class="btn primary" data-cap-save="${t.team_id}">${t.has_account ? "重置密码" : "创建账号"}</button>
+        <input data-cap-pass="${t.team_id}" type="text" placeholder="留空自动生成" style="width:150px">
+        ${t.generated_password ? `<span class="muted">初始密码：${esc(t.generated_password)}</span>` : ""}
+        <button class="btn primary" data-cap-save="${t.team_id}">重置密码</button>
       </div>`).join("") || `<span class="muted">暂无队伍</span>`;
     $("captain-list").querySelectorAll("[data-cap-save]").forEach((btn) => btn.onclick = async () => {
       if (!await guard()) return;
       const tid = btn.dataset.capSave;
       const username = $("captain-list").querySelector(`[data-cap-user="${tid}"]`).value.trim();
       const password = $("captain-list").querySelector(`[data-cap-pass="${tid}"]`).value;
-      if (!username || !password) { toast("需要用户名和密码"); return; }
       try {
-        await api(`/api/admin/teams/${tid}/captain`, { method: "PUT", headers: H(),
+        const result = await api(`/api/admin/teams/${tid}/captain`, { method: "PUT", headers: H(),
           body: JSON.stringify({ username, password }) });
-        toast(`已保存：${username}`);
+        toast(`已保存：${result.username}，新密码：${result.password}`, 8000);
         loadCaptains();
       } catch (e) { toast("失败：" + e.message, 4000); }
     });

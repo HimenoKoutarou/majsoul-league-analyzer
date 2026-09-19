@@ -82,6 +82,28 @@ def test_captain_login_flow(client, db):
     assert me["team_name"] == "红中会"
 
 
+def test_captain_can_change_independent_password(client, db):
+    _seed(client, db)
+    assert _login(client).status_code == 200
+
+    r = client.put("/api/captain/password", json={"password": "newpass1"})
+    assert r.status_code == 200
+    assert client.post("/api/captain/login",
+                       json={"username": "captain_red", "password": "newpass1"}).status_code == 200
+    assert client.post("/api/captain/login",
+                       json={"username": "captain_red", "password": "secret1"}).status_code == 401
+
+
+def test_new_team_gets_generated_captain_credentials(client, db):
+    r = client.post("/api/admin/teams", json={"name": "自动账号队"},
+                    headers=_auth(client))
+    assert r.status_code == 200
+    credentials = r.json()["captain"]
+    assert credentials["username"] == f"team_{r.json()['id']}"
+    assert len(credentials["password"]) >= 6
+    assert client.post("/api/captain/login", json=credentials).status_code == 200
+
+
 def test_admin_captain_account_invalid(client, db):
     _seed(client, db)
     team_id = db.query(Team).filter(Team.name == "红中会").first().id

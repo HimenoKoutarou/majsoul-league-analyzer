@@ -45,6 +45,26 @@ async def _save_logo(file: UploadFile) -> str:
     return f"/static/uploads/{name}"
 
 
+def _captain_username(db: Session, team_id: int) -> str:
+    base = f"team_{team_id}"
+    username = base
+    suffix = 2
+    while db.query(Captain).filter(Captain.username == username).first():
+        username = f"{base}_{suffix}"
+        suffix += 1
+    return username
+
+
+def _new_captain_credentials(db: Session, team: Team) -> tuple[str, str]:
+    from app.api.captain import _hash_password
+
+    username = _captain_username(db, team.id)
+    password = secrets.token_urlsafe(9)
+    db.add(Captain(team_id=team.id, username=username,
+                   password_hash=_hash_password(username, password)))
+    return username, password
+
+
 @router.put("/league", dependencies=[Depends(require_admin)])
 def update_league(body: dict, db: Session = Depends(get_db)):
     league = _league(db)
@@ -88,8 +108,10 @@ def create_team(body: dict, db: Session = Depends(get_db)):
     team = Team(name=body["name"], short_name=body.get("short_name", ""),
                 color=body.get("color", "#5b8cff"))
     db.add(team)
+    db.flush()
+    username, password = _new_captain_credentials(db, team)
     db.commit()
-    return {"id": team.id}
+    return {"id": team.id, "captain": {"username": username, "password": password}}
 
 
 @router.put("/teams/{team_id}", dependencies=[Depends(require_admin)])
@@ -359,30 +381,46 @@ def admin_update_claim(claim_id: int, body: dict, db: Session = Depends(get_db))
 
 @router.get("/captains", dependencies=[Depends(require_admin)])
 def admin_list_captains(db: Session = Depends(get_db)):
-    """列出各队队长账号（含未创建的队伍）。"""
+    """列出各队队长账号，并为历史队伍补齐自动生成的账号。"""
     caps = {c.team_id: c for c in db.query(Captain).all()}
     rows = (db.query(Team).order_by(Team.sort_order, Team.id).all())
-    return [{"team_id": t.id, "team_name": t.name, "color": t.color,
-             "username": caps[t.id].username if t.id in caps else None,
-             "has_account": t.id in caps}
-            for t in rows]
+    out = []
+    changed = False
+    for team in rows:
+        generated_password = None
+        captain = caps.get(team.id)
+        if not captain:
+            username, generated_password = _new_captain_credentials(db, team)
+            captain = db.query(Captain).filter(Captain.team_id == team.id).first()
+            changed = True
+        out.append({
+            "team_id": team.id, "team_name": team.name, "color": team.color,
+            "username": captain.username, "has_account": True,
+            "generated_password": generated_password,
+        })
+    if changed:
+        db.commit()
+    return out
 
 
 @router.put("/teams/{team_id}/captain", dependencies=[Depends(require_admin)])
 def admin_upsert_captain(team_id: int, body: dict, db: Session = Depends(get_db)):
-    """创建/重置某队队长账号密码。"""
-    from app.api.captain import _hash_password
+    """创建/重置某队队长账号密码。未提供凭据时自动生成。"""
+    from app.api.captain import _hash_password, validate_password
 
     team = db.get(Team, team_id)
     if not team:
         raise HTTPException(404, "队伍不存在")
     username = str(body.get("username") or "").strip()
     password = str(body.get("password") or "")
-    if len(username) < 3:
-        raise HTTPException(422, "用户名至少 3 个字符")
-    if len(password) < 6:
-        raise HTTPException(422, "密码至少 6 个字符")
     captain = db.query(Captain).filter(Captain.team_id == team.id).first()
+    if username and len(username) < 3:
+        raise HTTPException(422, "用户名至少 3 个字符")
+    if not username:
+        username = captain.username if captain else _captain_username(db, team.id)
+    if not password:
+        password = secrets.token_urlsafe(9)
+    validate_password(password)
     if captain and captain.username != username:
         # 换用户名：释放旧用户名
         if db.query(Captain).filter(Captain.username == username).first():
@@ -395,7 +433,7 @@ def admin_upsert_captain(team_id: int, body: dict, db: Session = Depends(get_db)
     captain.username = username
     captain.password_hash = _hash_password(username, password)
     db.commit()
-    return {"ok": True, "team_id": team.id, "username": username}
+    return {"ok": True, "team_id": team.id, "username": username, "password": password}
 
 
 @router.get("/lineups", dependencies=[Depends(require_admin)])

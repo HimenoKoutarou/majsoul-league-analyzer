@@ -27,6 +27,13 @@ def _hash_password(username: str, password: str) -> str:
     return hmac.new(secret, f"{username}:{password}".encode(), hashlib.sha256).hexdigest()
 
 
+def validate_password(password: str) -> str:
+    password = str(password or "")
+    if len(password) < 6:
+        raise HTTPException(422, "密码至少 6 个字符")
+    return password
+
+
 def _sign(username: str, team_id: int, exp: int) -> str:
     secret = config.ensure_session_secret().encode()
     msg = f"captain:{username}:{team_id}:{exp}".encode()
@@ -119,6 +126,17 @@ def login(body: dict, response: Response, db: Session = Depends(get_db)):
 @router.post("/logout")
 def logout(response: Response):
     response.delete_cookie(COOKIE, path="/")
+    return {"ok": True}
+
+
+@router.put("/password")
+def change_password(body: dict, captain: tuple = Depends(current_captain),
+                   db: Session = Depends(get_db)):
+    """队长修改队伍管理账号密码。"""
+    cap, _ = captain
+    password = validate_password(body.get("password"))
+    cap.password_hash = _hash_password(cap.username, password)
+    db.commit()
     return {"ok": True}
 
 

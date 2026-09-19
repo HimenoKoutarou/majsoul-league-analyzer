@@ -75,6 +75,11 @@ class DHSClient:
         return [{"account_id": i.account_id, "nickname": i.nickname}
                 for i in res.search_result]
 
+    async def search_by_account_id(self, account_id: int) -> list[dict]:
+        res = await self.channel.call("searchAccountByEid", eids=[account_id])
+        return [{"account_id": i.account_id, "nickname": i.nickname}
+                for i in res.search_result]
+
 
 class LobbyClient:
     """大厅网关客户端（fetchGameRecord 拿完整牌谱）。"""

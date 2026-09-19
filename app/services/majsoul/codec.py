@@ -30,6 +30,8 @@ METHODS = {
                                 "ResFetchCustomizedContestGameRecordList"),
     "searchAccountByNickname": (".lq.CustomizedContestManagerApi.searchAccountByNickname",
                                 "ReqSearchAccountByNickname", "ResSearchAccountByNickname"),
+    "searchAccountByEid": (".lq.CustomizedContestManagerApi.searchAccountByEid",
+                           "ReqSearchAccountByEid", "ResSearchAccountByEid"),
 }
 
 

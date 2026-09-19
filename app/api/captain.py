@@ -1,6 +1,7 @@
 """队长 API：登录 + 本队出战名单管理（比赛日每天两场，18:00 截止锁定）。"""
 import hashlib
 import hmac
+import asyncio
 import secrets
 import time
 from datetime import date, datetime, time as dtime, timedelta
@@ -152,6 +153,41 @@ def my_players(captain: tuple = Depends(current_captain), db: Session = Depends(
     rows = (db.query(Player).filter(Player.team_id == team.id)
             .order_by(Player.nickname).all())
     return [{"id": p.id, "nickname": p.nickname, "account_id": p.account_id} for p in rows]
+
+
+@router.get("/verify-player")
+def verify_player(account_id: int, captain: tuple = Depends(current_captain)):
+    """通过服务器配置的赛事管理账号验证雀魂账号 ID，不接触队长的雀魂密码。"""
+    if account_id <= 0:
+        raise HTTPException(422, "雀魂ID必须是正整数")
+    if not (config.DHS_USERNAME and config.DHS_PASSWORD):
+        raise HTTPException(503, "服务器未配置雀魂验证服务（DHS_USERNAME/DHS_PASSWORD）")
+
+    from app.services.majsoul.clients import DHSClient
+
+    async def _search():
+        client = DHSClient()
+        try:
+            await client.channel.connect()
+            from app.services.majsoul.clients import majsoul_password_hash
+            await client.channel.call(
+                "loginContestManager",
+                account=config.DHS_USERNAME,
+                password=majsoul_password_hash(config.DHS_PASSWORD),
+                type=0,
+            )
+            return await client.search_by_account_id(account_id)
+        finally:
+            await client.close()
+
+    try:
+        results = asyncio.run(_search())
+    except Exception as exc:
+        raise HTTPException(502, f"雀魂账号验证失败：{exc}")
+    match = next((item for item in results if item["account_id"] == account_id), None)
+    if not match:
+        return {"exists": False, "account_id": account_id, "nickname": None}
+    return {"exists": True, **match}
 
 
 @router.get("/matchdays")

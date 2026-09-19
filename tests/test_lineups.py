@@ -257,6 +257,52 @@ def test_captain_team_roster_management(client, db):
     assert client.delete(f"/api/captain/players/{other_pid}").status_code == 404
 
 
+def test_captain_can_verify_majsoul_account(client, db, monkeypatch):
+    _seed(client, db)
+    _login(client)
+    monkeypatch.setattr(config, "DHS_USERNAME", "dhs-user")
+    monkeypatch.setattr(config, "DHS_PASSWORD", "dhs-pass")
+
+    class FakeChannel:
+        async def connect(self):
+            pass
+
+        async def call(self, method, **fields):
+            assert method == "loginContestManager"
+            assert fields["account"] == "dhs-user"
+            return None
+
+    class FakeDHS:
+        def __init__(self):
+            self.channel = FakeChannel()
+
+        async def search_by_account_id(self, account_id):
+            assert account_id == 123456
+            return [{"account_id": account_id, "nickname": "验证雀士"}]
+
+        async def close(self):
+            pass
+
+    monkeypatch.setattr("app.services.majsoul.clients.DHSClient", FakeDHS)
+    r = client.get("/api/captain/verify-player?account_id=123456")
+    assert r.status_code == 200
+    assert r.json() == {
+        "exists": True, "account_id": 123456, "nickname": "验证雀士"
+    }
+
+    r = client.get("/api/captain/verify-player?account_id=0")
+    assert r.status_code == 422
+
+
+def test_captain_verify_reports_unconfigured_service(client, db, monkeypatch):
+    _seed(client, db)
+    _login(client)
+    monkeypatch.setattr(config, "DHS_USERNAME", "")
+    monkeypatch.setattr(config, "DHS_PASSWORD", "")
+    r = client.get("/api/captain/verify-player?account_id=123456")
+    assert r.status_code == 503
+
+
 def test_captain_logo_upload(client, db, monkeypatch):
     team_id, _, _ = _seed(client, db)
     _login(client)

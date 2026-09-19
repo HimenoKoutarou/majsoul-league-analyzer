@@ -102,8 +102,10 @@ async function loadTeam() {
       <div style="display:flex;gap:8px">
         <input id="ro-nick" placeholder="昵称" style="flex:1">
         <input id="ro-account" type="number" placeholder="雀魂ID(必填)" style="width:140px">
+        <button class="btn" id="ro-verify">验证雀魂用户</button>
         <button class="btn" id="ro-add">添加成员</button>
       </div>
+      <div id="ro-verify-result" class="muted" style="margin-top:8px"></div>
     </div>`;
 
   $("team-save").onclick = async () => {
@@ -133,6 +135,26 @@ async function loadTeam() {
         body: JSON.stringify({ nickname: nick, account_id: +account }) });
       toast("已添加成员"); loadTeam();
     } catch (e) { toast("失败：" + e.message, 4000); }
+  };
+  $("ro-verify").onclick = async () => {
+    const account = $("ro-account").value.trim();
+    if (!account || +account <= 0) { toast("请先填写正确的雀魂ID"); return; }
+    const btn = $("ro-verify");
+    btn.disabled = true;
+    $("ro-verify-result").textContent = "验证中…";
+    try {
+      const result = await api(`/api/captain/verify-player?account_id=${encodeURIComponent(account)}`);
+      if (!result.exists) {
+        $("ro-verify-result").textContent = "未找到该雀魂用户，请检查 ID";
+        return;
+      }
+      $("ro-nick").value = result.nickname;
+      $("ro-verify-result").textContent = `验证成功：${result.nickname}（雀魂ID ${result.account_id}）`;
+    } catch (e) {
+      $("ro-verify-result").textContent = `验证失败：${e.message}`;
+    } finally {
+      btn.disabled = false;
+    }
   };
 }
 

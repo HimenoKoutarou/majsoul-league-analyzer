@@ -67,7 +67,7 @@
     <div class="section-heading">
       <div>
         <h3>每日赛程（样表）</h3>
-        <p class="muted">每个比赛日填写当天上场的四支队伍编号。日期不能重复，四个编号不能重复。</p>
+        <p class="muted">每个比赛日两场、四支队伍出战，其余队伍自动轮空。日期不能重复，四个编号不能重复。</p>
       </div>
       <div>
         <button class="btn" id="schedule-add" type="button">新增日期</button>
@@ -76,11 +76,18 @@
     </div>
     <div class="table-scroll">
       <table class="admin-table">
-        <thead><tr><th>比赛日期</th><th>第1队</th><th>第2队</th><th>第3队</th><th>第4队</th><th>备注</th><th></th></tr></thead>
+        <thead><tr><th>比赛日期</th><th>第1队</th><th>第2队</th><th>第3队</th><th>第4队</th><th>轮空队伍</th><th>备注</th><th></th></tr></thead>
         <tbody id="schedule-list"></tbody>
       </table>
     </div>
     <p id="schedule-empty" class="muted">暂无赛程。点击“新增日期”开始填写。</p>
+    <div style="margin-top:16px">
+      <h4>追加导入 JSON</h4>
+      <p class="muted">只追加不存在的日期，不会覆盖已有赛程。格式示例见 <code>docs/schedule-example.json</code>。</p>
+      <textarea id="schedule-import" rows="7" style="width:100%;max-width:720px;font-family:monospace"
+        placeholder='{"rows":[{"date":"2026-10-01","team_numbers":[1,2,3,4],"note":"第1轮"}]}'></textarea>
+      <div style="margin-top:8px"><button class="btn" id="schedule-append" type="button">追加赛程</button></div>
+    </div>
     <hr>
     <h3>队长账号（队长用账号密码登录后提交出战名单）</h3>
     <p class="muted">队长密码由系统自动生成，管理员只能查看；队长可在队长工作台修改密码。</p>
@@ -260,6 +267,7 @@ function renderSchedule() {
       <td><input type="date" data-schedule-date value="${esc(row.date || "")}"></td>
       ${[0, 1, 2, 3].map((i) => `<td><input type="number" min="1" data-schedule-team="${i}"
         value="${row.team_numbers[i] || ""}" style="width:68px"></td>`).join("")}
+      <td class="muted">${(row.bye_teams || []).map((t) => esc(t.name)).join("、") || "保存后计算"}</td>
       <td><input data-schedule-note value="${esc(row.note || "")}" placeholder="备注"></td>
       <td><button class="btn" data-schedule-delete type="button">删除</button></td>
     </tr>`).join("");
@@ -291,6 +299,24 @@ $("schedule-save").onclick = async () => {
     toast(`赛程已保存，共 ${result.count} 天`);
     loadSchedule();
   } catch (e) { toast("保存失败：" + e.message, 5000); }
+};
+$("schedule-append").onclick = async () => {
+  if (!await guard()) return;
+  let payload;
+  try {
+    payload = JSON.parse($("schedule-import").value);
+    if (Array.isArray(payload)) payload = { rows: payload };
+  } catch (e) {
+    toast("JSON 格式无效");
+    return;
+  }
+  try {
+    const result = await api("/api/admin/schedule/append", {
+      method: "POST", headers: H(), body: JSON.stringify(payload) });
+    toast(`已追加 ${result.added} 天赛程，共 ${result.total} 天`);
+    $("schedule-import").value = "";
+    loadSchedule();
+  } catch (e) { toast("追加失败：" + e.message, 5000); }
 };
 async function loadSchedule() {
   try {

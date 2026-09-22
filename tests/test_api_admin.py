@@ -141,12 +141,12 @@ def test_admin_schedule_can_be_saved_and_validated(client, db):
 
     listed = client.get("/api/admin/schedule", headers=_auth(client))
     assert listed.status_code == 200
-    assert listed.json() == [
-        {"id": listed.json()[0]["id"], "date": "2026-10-01",
-         "team_numbers": [1, 2, 3, 4], "note": "开幕日"},
-        {"id": listed.json()[1]["id"], "date": "2026-10-02",
-         "team_numbers": [2, 3, 4, 5], "note": ""},
-    ]
+    rows = listed.json()
+    assert [row["date"] for row in rows] == ["2026-10-01", "2026-10-02"]
+    assert rows[0]["team_numbers"] == [1, 2, 3, 4]
+    assert [team["team_number"] for team in rows[0]["bye_teams"]] == [5]
+    assert rows[1]["team_numbers"] == [2, 3, 4, 5]
+    assert [team["team_number"] for team in rows[1]["bye_teams"]] == [1]
 
     invalid = client.put(
         "/api/admin/schedule",
@@ -154,6 +154,20 @@ def test_admin_schedule_can_be_saved_and_validated(client, db):
         headers=_auth(client),
     )
     assert invalid.status_code == 422
+
+    appended = client.post(
+        "/api/admin/schedule/append",
+        json={"rows": [{"date": "2026-10-03", "team_numbers": [1, 2, 3, 5]}]},
+        headers=_auth(client),
+    )
+    assert appended.status_code == 200
+    assert appended.json()["added"] == 1
+    duplicate = client.post(
+        "/api/admin/schedule/append",
+        json={"rows": [{"date": "2026-10-03", "team_numbers": [1, 2, 3, 5]}]},
+        headers=_auth(client),
+    )
+    assert duplicate.status_code == 409
 
 
 def test_admin_schedule_rejects_unknown_team_number(client, db):

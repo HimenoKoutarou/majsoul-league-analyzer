@@ -13,6 +13,8 @@ from sqlalchemy.orm import Session
 import app.config as config
 from app.db import get_db
 from app.models import Captain, Lineup, Player, Team
+from app.services.schedule import (fallback_matchday, has_schedule, scheduled_day,
+                                    scheduled_matchdays, schedule_view)
 from app.services.uploads import read_image_upload
 
 router = APIRouter(prefix="/captain")
@@ -77,6 +79,31 @@ def next_matchdays(count: int = 6) -> list[date]:
             out.append(d)
         d += timedelta(days=1)
     return out
+
+
+def _schedule_for_date(db: Session, match_date: date) -> dict:
+    """Return schedule metadata, preserving the old weekday fallback when empty."""
+    configured = has_schedule(db)
+    row = scheduled_day(db, match_date) if configured else None
+    if configured:
+        view = schedule_view(db, row)
+        view["scheduled"] = row is not None
+        view["match_day"] = row is not None
+        return view
+    teams = db.query(Team).order_by(Team.sort_order, Team.id).all()
+    active = teams if fallback_matchday(match_date) else []
+    return {
+        "date": match_date.isoformat(),
+        "team_numbers": [t.team_number for t in active if t.team_number is not None],
+        "active_teams": [{"id": t.id, "team_number": t.team_number,
+                          "name": t.name, "color": t.color} for t in active],
+        "bye_teams": [{"id": t.id, "team_number": t.team_number,
+                       "name": t.name, "color": t.color}
+                      for t in teams if t not in active],
+        "note": "",
+        "scheduled": False,
+        "match_day": bool(active),
+    }
 
 
 def is_locked(match_date: date) -> bool:
@@ -192,11 +219,17 @@ def verify_player(account_id: int, captain: tuple = Depends(current_captain)):
 
 
 @router.get("/matchdays")
-def list_matchdays(count: int = 6):
+def list_matchdays(count: int = 6, db: Session = Depends(get_db)):
+    count = max(1, min(int(count), 30))
+    if has_schedule(db):
+        days = [row.match_date for row in scheduled_matchdays(db, count)]
+    else:
+        days = next_matchdays(count)
     return [{"date": d.isoformat(),
              "weekday": "周" + "一二三四五六日"[d.weekday()],
-             "locked": is_locked(d)}
-            for d in next_matchdays(count)]
+             "locked": is_locked(d),
+             **_schedule_for_date(db, d)}
+            for d in days]
 
 
 @router.get("/lineups")
@@ -207,13 +240,19 @@ def my_lineups(date: str, captain: tuple = Depends(current_captain),
         match_date = datetime.strptime(date, "%Y-%m-%d").date()
     except ValueError:
         raise HTTPException(422, "日期无效（需 YYYY-MM-DD）")
+    schedule = _schedule_for_date(db, match_date)
     locked = is_locked(match_date)
     rows = {lu.slot: lu for lu in db.query(Lineup).filter(
         Lineup.team_id == team.id, Lineup.match_date == match_date).all()}
     slots = [_serialize_lineup(db, rows.get(s), s, locked) for s in (1, 2)]
-    return {"date": match_date.isoformat(), "match_day": match_date.isoweekday() in MATCH_WEEKDAYS,
+    return {"date": match_date.isoformat(), "match_day": schedule["match_day"],
             "weekday": "周" + "一二三四五六日"[match_date.weekday()],
-            "locked": locked, "slots": slots}
+            "locked": locked, "scheduled": schedule["scheduled"],
+            "team_numbers": schedule["team_numbers"],
+            "active_teams": schedule["active_teams"],
+            "bye_teams": schedule["bye_teams"], "note": schedule["note"],
+            "team_active": team.id in {item["id"] for item in schedule["active_teams"]},
+            "slots": slots}
 
 
 @router.get("/public/lineups")
@@ -225,13 +264,27 @@ def public_lineups(date_str: str | None = None, db: Session = Depends(get_db)):
         except ValueError:
             raise HTTPException(422, "日期无效（需 YYYY-MM-DD）")
     else:
-        match_date = next_matchdays(1)[0]
+        if has_schedule(db):
+            rows = scheduled_matchdays(db, 2)
+            if not rows:
+                raise HTTPException(404, "暂无已上传赛程")
+            match_date = rows[0].match_date
+        else:
+            match_date = next_matchdays(1)[0]
         # 当天比赛日过了 18:00 后，默认展示下一个比赛日。
         # 这里直接判断当前时间，避免测试或调用方替换 is_locked 影响日期选择。
         if match_date == date.today() and datetime.now().time() >= CUTOFF:
-            match_date = next_matchdays(2)[1]
+            if has_schedule(db):
+                rows = scheduled_matchdays(db, 2)
+                if len(rows) > 1:
+                    match_date = rows[1].match_date
+            else:
+                match_date = next_matchdays(2)[1]
     visible = is_locked(match_date)  # 18:00 截止后（含已过日期）才公开
-    teams = db.query(Team).order_by(Team.sort_order, Team.id).all()
+    schedule = _schedule_for_date(db, match_date)
+    active_ids = {team["id"] for team in schedule["active_teams"]}
+    teams = [team for team in db.query(Team).order_by(Team.sort_order, Team.id).all()
+             if team.id in active_ids]
     lus = {(lu.team_id, lu.slot): lu for lu in db.query(Lineup).filter(
         Lineup.match_date == match_date).all()}
     out = []
@@ -248,7 +301,12 @@ def public_lineups(date_str: str | None = None, db: Session = Depends(get_db)):
             })
     return {"date": match_date.isoformat(),
             "weekday": "周" + "一二三四五六日"[match_date.weekday()],
-            "locked": visible, "rows": out}
+            "locked": visible, "scheduled": schedule["scheduled"],
+            "match_day": schedule["match_day"],
+            "team_numbers": schedule["team_numbers"],
+            "active_teams": schedule["active_teams"],
+            "bye_teams": schedule["bye_teams"], "note": schedule["note"],
+            "rows": out}
 
 
 @router.put("/lineups")
@@ -259,8 +317,11 @@ def upsert_lineup(body: dict, captain: tuple = Depends(current_captain),
         match_date = datetime.strptime(str(body.get("date") or ""), "%Y-%m-%d").date()
     except ValueError:
         raise HTTPException(422, "日期无效（需 YYYY-MM-DD）")
-    if match_date.isoweekday() not in MATCH_WEEKDAYS:
-        raise HTTPException(422, "仅周三/周五/周日比赛日可提交名单")
+    schedule = _schedule_for_date(db, match_date)
+    if not schedule["match_day"]:
+        raise HTTPException(422, "该日期不是已安排的比赛日")
+    if has_schedule(db) and team.id not in {t["id"] for t in schedule["active_teams"]}:
+        raise HTTPException(422, "本队当天轮空，不能提交出战名单")
     if is_locked(match_date):
         raise HTTPException(403, "该比赛日名单已截止（18:00 后锁定）")
     slot = int(body.get("slot") or 0)

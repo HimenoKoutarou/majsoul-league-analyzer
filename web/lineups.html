@@ -21,6 +21,7 @@
 <div class="container">
   <h1>出战名单</h1>
   <p id="meta" class="muted">加载中…</p>
+  <p id="schedule-summary" class="muted"></p>
   <div id="tables"></div>
 </div>
 <script type="module">
@@ -35,6 +36,12 @@ async function main() {
     (data.locked
       ? ` · <span style="color:#b91c1c">名单已公开（18:00 截止后生效）</span>`
       : ` · 名单尚未公开（比赛日 18:00 截止后展示）`);
+  const active = data.active_teams || [];
+  const bye = data.bye_teams || [];
+  $("schedule-summary").innerHTML = data.match_day
+    ? `当天出战：<b>${active.length} 队</b> · ${active.map((t) => esc(t.name)).join("、") || "暂无"}` +
+      (bye.length ? ` · 轮空：${bye.map((t) => esc(t.name)).join("、")}` : "")
+    : "暂无已安排的比赛日";
   const first = data.rows.filter((r) => r.slot === 1);
   const second = data.rows.filter((r) => r.slot === 2);
   const render = (slot, rows) => `

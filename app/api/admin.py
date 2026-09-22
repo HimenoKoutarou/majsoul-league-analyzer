@@ -13,6 +13,7 @@ from app.models import (Bounty, BountyClaim, Captain, Game, GamePlayer, League, 
                         ScheduleDay, SyncRun, Team)
 from app.services.ninklang import fetch_tenhou
 from app.services.paipu.ingest import ingest_tenhou_game
+from app.services.schedule import schedule_view
 from app.services.uploads import read_image_upload
 
 router = APIRouter()
@@ -175,12 +176,12 @@ def update_team(team_id: int, body: dict, db: Session = Depends(get_db)):
 def list_schedule(db: Session = Depends(get_db)):
     rows = db.query(ScheduleDay).order_by(ScheduleDay.match_date).all()
     return [{"id": row.id, "date": row.match_date.isoformat(),
-             "team_numbers": row.team_numbers or [], "note": row.note or ""}
+             "team_numbers": row.team_numbers or [], "note": row.note or "",
+             **schedule_view(db, row)}
             for row in rows]
 
 
-@router.put("/schedule", dependencies=[Depends(require_admin)])
-def replace_schedule(body: dict, db: Session = Depends(get_db)):
+def _parse_schedule_rows(body: dict, db: Session) -> list[tuple[date, list[int], str]]:
     rows = body.get("rows")
     if not isinstance(rows, list):
         raise HTTPException(422, "赛程必须是数组")
@@ -202,22 +203,44 @@ def replace_schedule(body: dict, db: Session = Depends(get_db)):
         seen.add(match_date)
         numbers = row.get("team_numbers", [])
         if not isinstance(numbers, list) or len(numbers) != 4:
-            raise HTTPException(422, "每天必须填写四个队伍编号")
+            raise HTTPException(422, "每天必须填写四个出战队伍编号")
         try:
             numbers = [int(number) for number in numbers]
         except (TypeError, ValueError):
             raise HTTPException(422, "队伍编号必须是数字")
         if any(number <= 0 for number in numbers) or len(set(numbers)) != 4:
-            raise HTTPException(422, "每天四个队伍编号必须为四个不同的正整数")
+            raise HTTPException(422, "每天四个出战队伍编号必须为四个不同的正整数")
         missing = sorted(set(numbers) - known_numbers)
         if missing:
             raise HTTPException(422, f"队伍编号不存在：{missing}")
         parsed.append((match_date, numbers, str(row.get("note") or "")[:255]))
+    return parsed
+
+
+@router.put("/schedule", dependencies=[Depends(require_admin)])
+def replace_schedule(body: dict, db: Session = Depends(get_db)):
+    parsed = _parse_schedule_rows(body, db)
     db.query(ScheduleDay).delete()
     db.add_all([ScheduleDay(match_date=match_date, team_numbers=numbers, note=note)
                 for match_date, numbers, note in parsed])
     db.commit()
     return {"ok": True, "count": len(parsed)}
+
+
+@router.post("/schedule/append", dependencies=[Depends(require_admin)])
+def append_schedule(body: dict, db: Session = Depends(get_db)):
+    """追加未存在日期的赛程，不会覆盖已有赛程。"""
+    parsed = _parse_schedule_rows(body, db)
+    existing = {row.match_date for row in db.query(ScheduleDay).all()}
+    duplicate = sorted(match_date.isoformat() for match_date, _, _ in parsed
+                       if match_date in existing)
+    if duplicate:
+        raise HTTPException(409, f"赛程日期已存在：{duplicate}")
+    db.add_all([ScheduleDay(match_date=match_date, team_numbers=numbers, note=note)
+                for match_date, numbers, note in parsed])
+    db.commit()
+    return {"ok": True, "added": len(parsed),
+            "total": db.query(ScheduleDay).count()}
 
 
 @router.delete("/teams/{team_id}", dependencies=[Depends(require_admin)])

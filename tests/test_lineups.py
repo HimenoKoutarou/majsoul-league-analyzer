@@ -8,7 +8,7 @@ import app.config as config
 from app.api.captain import MATCH_WEEKDAYS, is_locked, next_matchdays
 from app.db import get_db
 from app.main import create_app
-from app.models import Captain, Lineup, Player, Team
+from app.models import Captain, Lineup, Player, ScheduleDay, Team
 
 
 @pytest.fixture
@@ -40,7 +40,7 @@ def _seed(client, db):
     r = client.post("/api/admin/teams", json={"name": "红中会", "color": "#e5484d"},
                     headers=_auth(client))
     team_id = r.json()["id"]
-    db.add(Team(name="白板社", color="#2563eb"))
+    db.add(Team(name="白板社", color="#2563eb", team_number=2))
     db.commit()
     other_id = db.query(Team).filter(Team.name == "白板社").first().id
     ids = []
@@ -198,6 +198,46 @@ def test_upsert_lineup_and_public(client, db):
     # 管理端可见（含未公开前的名单）
     admin_rows = client.get("/api/admin/lineups", headers=_auth(client)).json()
     assert len(admin_rows) == 3
+
+
+def test_uploaded_schedule_controls_active_and_bye_teams(client, db):
+    team_id, other_id, ids = _seed(client, db)
+    extra = []
+    for number in (3, 4, 5, 6):
+        team = Team(name=f"队伍{number}", team_number=number)
+        db.add(team)
+        extra.append(team)
+    db.flush()
+    match_date = date(2026, 10, 1)
+    db.add(ScheduleDay(match_date=match_date, team_numbers=[1, 2, 3, 4], note="第1轮"))
+    db.commit()
+    _login(client)
+
+    days = client.get("/api/captain/matchdays?count=6").json()
+    assert [day["date"] for day in days] == [match_date.isoformat()]
+    assert len(days[0]["active_teams"]) == 4
+    assert {team["team_number"] for team in days[0]["bye_teams"]} == {5, 6}
+
+    public = client.get(f"/api/captain/public/lineups?date_str={match_date}").json()
+    assert len(public["rows"]) == 8
+    assert {row["team_id"] for row in public["rows"]} == {
+        team.id for team in [db.get(Team, team_id), db.get(Team, other_id), *extra[:2]]
+    }
+
+    # The captain's team is active and can submit on an uploaded match day.
+    submitted = client.put("/api/captain/lineups", json={
+        "date": match_date.isoformat(), "slot": 1, "player_ids": [ids[0]]
+    })
+    assert submitted.status_code == 200
+
+    # Move the captain's team out of the active set and reject its submission.
+    schedule = db.query(ScheduleDay).first()
+    schedule.team_numbers = [2, 3, 4, 5]
+    db.commit()
+    rejected = client.put("/api/captain/lineups", json={
+        "date": match_date.isoformat(), "slot": 2, "player_ids": [ids[1]]
+    })
+    assert rejected.status_code == 422
 
 
 def test_public_hides_before_cutoff_but_shows_past(client, db, monkeypatch):

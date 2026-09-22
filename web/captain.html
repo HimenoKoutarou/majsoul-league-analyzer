@@ -38,7 +38,7 @@
   </div>
 
   <h2 style="margin-top:24px">出战名单</h2>
-  <p class="muted">比赛日为每周三 / 周五 / 周日，每天两场（第一场、第二场）各提交 1 名出战选手；
+  <p class="muted">按管理员上传的赛程出战，每天两场（第一场、第二场）各提交 1 名出战选手；
     比赛日 18:00 截止并公开名单，截止后不可修改；提交后立即生效，无需审核。</p>
 
   <div class="tabs" id="matchday-tabs"></div>
@@ -189,7 +189,7 @@ async function loadMatchdays() {
   const days = await api("/api/captain/matchdays?count=6");
   $("matchday-tabs").innerHTML = days.map((d, i) => `
     <button class="btn ${i === 0 ? "on" : ""}" data-date="${d.date}">
-      ${d.date} ${d.weekday}${d.locked ? "（已截止）" : ""}
+      ${d.date} ${d.weekday}${d.scheduled ? "" : "（旧规则）"}${d.locked ? "（已截止）" : ""}
     </button>`).join("");
   const btns = $("matchday-tabs").querySelectorAll("[data-date]");
   btns.forEach((b) => b.onclick = () => {
@@ -207,13 +207,18 @@ async function loadLineups(date) {
   ]);
   playersCache = players;
   const locked = data.locked;
+  const active = data.active_teams || [];
+  const bye = data.bye_teams || [];
   $("lineup-area").innerHTML = `
     <p>
       <b>${date} ${data.weekday}</b>
+      ${data.match_day ? `<span class="muted">· 出战 ${active.length} 队</span>` : `<span class="locked-tip">· 非比赛日</span>`}
+      ${bye.length ? `<span class="muted">· 轮空：${bye.map((t) => esc(t.name)).join("、")}</span>` : ""}
       ${locked ? `<span class="locked-tip">· 名单已截止锁定（18:00 后不可修改）</span>`
                : `<span class="tag win">可编辑（18:00 截止）</span>`}
     </p>
-    ${data.slots.map((s) => slotCard(date, s, locked)).join("")}`;
+    ${data.team_active ? data.slots.map((s) => slotCard(date, s, locked)).join("")
+      : `<div class="card"><span class="muted">本队当天轮空，无需提交名单。</span></div>`}`;
   document.querySelectorAll("[data-save]").forEach((btn) => btn.onclick = () => saveLineup(btn));
 }
 

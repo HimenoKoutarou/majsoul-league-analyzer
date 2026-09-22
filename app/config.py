@@ -19,6 +19,10 @@ AUTO_SYNC_TIME = os.environ.get("AUTO_SYNC_TIME", "22:00").strip() or "22:00"
 # 赛事场组织者账号密码（自动检测需要；仅从环境变量读取，不落盘）
 DHS_USERNAME = os.environ.get("DHS_USERNAME", "").strip()
 DHS_PASSWORD = os.environ.get("DHS_PASSWORD", "").strip()
+# 赛事场 WebSocket 地址；网络环境受限时可通过环境变量切换网关或代理入口。
+DHS_WS = os.environ.get("DHS_WS", "wss://common-v2.maj-soul.com/contest_ws_gateway").strip()
+# 当前赛事后台 HTTP API 地址。
+DHS_API = os.environ.get("DHS_API", "https://contest-gate-202411.maj-soul.com").strip().rstrip("/")
 
 _admin_token_cache: str | None = None
 _admin_username_cache: str | None = None

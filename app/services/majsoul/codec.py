@@ -5,7 +5,7 @@
 """
 import websockets
 
-import liqi_combined_pb2 as pb
+from . import liqi_combined_pb2 as pb
 
 
 class MajsoulApiError(Exception):

@@ -93,6 +93,27 @@ def update_league(body: dict, db: Session = Depends(get_db)):
     return {"ok": True}
 
 
+@router.get("/sync-credentials", dependencies=[Depends(require_admin)])
+def get_sync_credentials(db: Session = Depends(get_db)):
+    league = _league(db)
+    return {"username": league.sync_username or config.DHS_USERNAME,
+            "password": league.sync_password or config.DHS_PASSWORD,
+            "persistent": bool(league.sync_username or league.sync_password)}
+
+
+@router.put("/sync-credentials", dependencies=[Depends(require_admin)])
+def update_sync_credentials(body: dict, db: Session = Depends(get_db)):
+    username = str(body.get("username") or "").strip()
+    password = str(body.get("password") or "")
+    if not username or not password:
+        raise HTTPException(422, "赛事场账号和密码不能为空")
+    league = _league(db)
+    league.sync_username = username
+    league.sync_password = password
+    db.commit()
+    return {"ok": True, "username": username, "persistent": True}
+
+
 @router.put("/league/logo", dependencies=[Depends(require_admin)])
 async def update_league_logo(file: UploadFile, db: Session = Depends(get_db)):
     league = _league(db)
@@ -335,27 +356,53 @@ def init_from_contest(body: dict, db: Session = Depends(get_db)):
     password = str(body.get("password") or "")
     if not (isinstance(contest_id, int) and username and password):
         raise HTTPException(422, "需要 contest_id/username/password")
+    # 先保存场号，网络初始化失败时也不能丢失管理员刚填写的配置。
+    league = _league(db)
+    league.contest_id = contest_id
+    league.sync_username = username
+    league.sync_password = password
+    db.commit()
     from app.services.majsoul.sync import init_from_contest as _init
 
     try:
-        return _init(db, contest_id, username, password)
+        result = _init(db, contest_id, username, password)
+        league.sync_username = username
+        league.sync_password = password
+        db.commit()
+        return result
     except Exception as exc:
-        raise HTTPException(502, f"赛事场初始化失败：{exc}")
+        message = str(exc)
+        if ("opening handshake" in message.lower() or "timed out" in message.lower()
+                or "connecterror" in message.lower() or "connect error" in message.lower()):
+            message = ("无法连接雀魂赛事 API，请检查服务器网络、代理或 DHS_API 配置；"
+                       f"当前 API：{config.DHS_API}")
+        raise HTTPException(502, f"赛事场初始化失败：{message}")
 
 
 @router.post("/sync", dependencies=[Depends(require_admin)])
 def trigger_sync(body: dict, db: Session = Depends(get_db)):
-    username = str(body.get("username") or "").strip()
-    password = str(body.get("password") or "")
     league = _league(db)
     if not league.contest_id:
         raise HTTPException(422, "联赛未绑定赛事场ID，请先初始化")
+    username = str(body.get("username") or league.sync_username or config.DHS_USERNAME).strip()
+    password = str(body.get("password") or league.sync_password or config.DHS_PASSWORD)
+    start_date = None
+    if body.get("start_date"):
+        try:
+            start_date = date.fromisoformat(str(body["start_date"]))
+        except ValueError:
+            raise HTTPException(422, "start_date 必须是 YYYY-MM-DD")
     if not username or not password:
-        raise HTTPException(422, "需要 username/password")
+        raise HTTPException(422, "需要 username/password，或先保存赛事场账号")
+    if body.get("username") or body.get("password"):
+        league.sync_username = username
+        league.sync_password = password
+        db.commit()
     from app.db import SessionLocal
     from app.services.majsoul.sync import start_sync_thread
 
-    ok = start_sync_thread(SessionLocal, league.contest_id, username, password)
+    ok = start_sync_thread(SessionLocal, league.contest_id, username, password,
+                           start_date=start_date)
     if not ok:
         raise HTTPException(409, "同步正在进行中")
     return {"started": True}
@@ -369,10 +416,28 @@ def sync_status_endpoint():
 
 
 @router.get("/sync/auto-status", dependencies=[Depends(require_admin)])
-def auto_sync_status_endpoint():
+def auto_sync_status_endpoint(db: Session = Depends(get_db)):
     from app.services.majsoul.auto_sync import auto_sync_state
 
-    return auto_sync_state()
+    state = auto_sync_state()
+    league = _league(db)
+    if league.auto_sync_enabled is not None:
+        state["enabled"] = bool(league.auto_sync_enabled)
+    return state
+
+
+@router.put("/sync/auto-status", dependencies=[Depends(require_admin)])
+def update_auto_sync_status(body: dict, db: Session = Depends(get_db)):
+    if not isinstance(body.get("enabled"), bool):
+        raise HTTPException(422, "enabled 必须是布尔值")
+    from app.db import SessionLocal
+    from app.services.majsoul.auto_sync import set_runtime_enabled
+
+    league = _league(db)
+    league.auto_sync_enabled = body["enabled"]
+    db.commit()
+    set_runtime_enabled(body["enabled"], SessionLocal)
+    return auto_sync_status_endpoint(db)
 
 
 @router.post("/search-player", dependencies=[Depends(require_admin)])

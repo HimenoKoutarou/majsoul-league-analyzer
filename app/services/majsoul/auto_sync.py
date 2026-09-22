@@ -29,6 +29,17 @@ def auto_sync_state() -> dict:
         return dict(_state)
 
 
+def set_runtime_enabled(enabled: bool, session_factory) -> bool:
+    """立即切换自动检测，并启动调度线程（如尚未启动）。"""
+    config.AUTO_SYNC_ENABLED = bool(enabled)
+    if enabled:
+        return start_auto_sync(session_factory)
+    with _lock:
+        _state["enabled"] = False
+        _state["next_run_at"] = None
+    return True
+
+
 def _parse_time(value: str) -> tuple[int, int] | None:
     """解析 HH:MM，非法返回 None。"""
     try:
@@ -77,6 +88,8 @@ def _tick(session_factory):
         with session_factory() as session:
             league = session.query(League).first()
             contest_id = league.contest_id if league else None
+            username = (getattr(league, "sync_username", "") if league else "") or config.DHS_USERNAME
+            password = (getattr(league, "sync_password", "") if league else "") or config.DHS_PASSWORD
     except Exception as exc:
         with _lock:
             _state["running"] = False
@@ -91,7 +104,7 @@ def _tick(session_factory):
             _state["last_error"] = "联赛未绑定赛事场ID（请先在管理后台初始化）"
         return None
 
-    if not (config.DHS_USERNAME and config.DHS_PASSWORD):
+    if not (username and password):
         with _lock:
             _state["running"] = False
             _state["last_status"] = "skipped"
@@ -99,7 +112,7 @@ def _tick(session_factory):
         return None
 
     ok = start_sync_thread(session_factory, contest_id,
-                           config.DHS_USERNAME, config.DHS_PASSWORD,
+                           username, password,
                            triggered_by="auto", callback=_on_done)
     if not ok:
         with _lock:
@@ -123,6 +136,12 @@ def start_auto_sync(session_factory) -> bool:
 
     def _loop():
         while True:
+            if not config.AUTO_SYNC_ENABLED:
+                with _lock:
+                    _state["enabled"] = False
+                    _state["next_run_at"] = None
+                time.sleep(5)
+                continue
             next_at = _next_run_after(datetime.now())
             with _lock:
                 _state["next_run_at"] = next_at.isoformat()

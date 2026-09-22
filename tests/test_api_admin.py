@@ -73,6 +73,22 @@ def test_admin_league_rejects_invalid_date(client, db):
     assert r.status_code == 422
 
 
+def test_sync_credentials_are_persistent_and_private(client, db):
+    _seed_league(db)
+    saved = client.put("/api/admin/sync-credentials", json={
+        "username": "contest-admin", "password": "secret-pass"
+    }, headers=_auth(client))
+    assert saved.status_code == 200
+
+    loaded = client.get("/api/admin/sync-credentials", headers=_auth(client))
+    assert loaded.json() == {
+        "username": "contest-admin", "password": "secret-pass", "persistent": True
+    }
+    public = client.get("/api/league").json()
+    assert "sync_username" not in public
+    assert "sync_password" not in public
+
+
 def test_admin_score_rule(client, db):
     _seed_league(db)
     r = client.put("/api/admin/score-rule",

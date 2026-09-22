@@ -22,6 +22,9 @@ class League(Base):
     end_date: Mapped[date | None] = mapped_column(Date)
     contact: Mapped[str] = mapped_column(String(255), default="")
     contest_id: Mapped[int | None] = mapped_column(Integer)
+    sync_username: Mapped[str] = mapped_column(String(128), default="")
+    sync_password: Mapped[str] = mapped_column(String(255), default="")
+    auto_sync_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     score_rule: Mapped[dict] = mapped_column(JSON, default=lambda: dict(DEFAULT_SCORE_RULE))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 

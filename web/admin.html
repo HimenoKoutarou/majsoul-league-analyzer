@@ -123,8 +123,11 @@
     <h3>同步对局</h3>
     <p>组织者账号 <input id="sync-user" style="width:160px">
        密码 <input id="sync-pass" type="password" style="width:160px">
+       <button class="btn" id="sync-credentials-save">保存账号</button>
        <button class="btn primary" id="sync-btn">开始同步</button>
        <span class="muted" id="sync-status"></span></p>
+    <p>起始日期 <input id="sync-start-date" type="date">
+       <span class="muted">只同步该日期及之后的牌谱；留空则不限制日期</span></p>
     <hr>
     <h3>分享链接录入（无需账号）</h3>
     <p><input id="share-url" style="min-width:420px"
@@ -183,6 +186,7 @@ async function loadLeague() {
   $("lg-start").value = lg.start_date || ""; $("lg-end").value = lg.end_date || "";
   $("lg-desc").value = lg.description || "";
   $("lg-contest").value = lg.contest_id || "";
+  $("init-contest").value = lg.contest_id || "";
   const rp = lg.score_rule.rank_points;
   ["rp0", "rp1", "rp2", "rp3"].forEach((id, i) => $(id).value = rp[i]);
 }
@@ -273,6 +277,25 @@ function renderSchedule() {
     </tr>`).join("");
   $("schedule-empty").style.display = scheduleRows.length ? "none" : "";
 }
+async function loadSyncCredentials() {
+  try {
+    const credentials = await api("/api/admin/sync-credentials");
+    $("init-user").value = credentials.username || "";
+    $("sync-user").value = credentials.username || "";
+    $("sync-pass").value = credentials.password || "";
+    $("init-pass").value = credentials.password || "";
+  } catch (e) { /* ignore */ }
+}
+$('sync-credentials-save').onclick = async () => {
+  if (!await guard()) return;
+  try {
+    await api("/api/admin/sync-credentials", { method: "PUT", headers: H(),
+      body: JSON.stringify({ username: $("sync-user").value, password: $("sync-pass").value }) });
+    $("init-user").value = $("sync-user").value;
+    $("init-pass").value = $("sync-pass").value;
+    toast("数据同步账号已保存");
+  } catch (e) { toast("保存失败：" + e.message, 4000); }
+};
 function readScheduleRows() {
   return [...$("schedule-list").querySelectorAll("[data-schedule-row]")].map((el) => ({
     date: el.querySelector("[data-schedule-date]").value,
@@ -366,7 +389,8 @@ $("init-btn").onclick = async () => { if (!await guard()) return;
 $("sync-btn").onclick = async () => { if (!await guard()) return;
   try {
     await api("/api/admin/sync", { method: "POST", headers: H(),
-      body: JSON.stringify({ username: $("sync-user").value, password: $("sync-pass").value }) });
+      body: JSON.stringify({ username: $("sync-user").value, password: $("sync-pass").value,
+        start_date: $("sync-start-date").value || null }) });
     toast("同步已开始");
     pollStatus();
   } catch (e) { toast("失败：" + e.message, 4000); } };
@@ -393,16 +417,50 @@ async function loadRuns() {
     const runs = await api("/api/admin/sync-runs");
     $("sync-runs").innerHTML = runs.map((r) => `
       <div class="muted">#${r.id} ${r.channel} ${r.status} · 新增${r.games_added}场
-      ${r.errors && r.errors.length ? ` · 错误${r.errors.length}条` : ""}
+      ${r.errors && r.errors.length ? `
+        · 错误${r.errors.length}条
+        <details style="margin:6px 0 10px 20px;color:#b91c1c">
+          <summary style="cursor:pointer">查看错误详情</summary>
+          <div style="white-space:pre-wrap;margin-top:6px">${r.errors.map((error) => {
+            const uuid = error.uuid ? `牌谱 ${esc(error.uuid)}：` : "";
+            const message = error.message || JSON.stringify(error);
+            const trace = error.trace ? `\n${error.trace}` : "";
+            return `${uuid}${esc(message)}${esc(trace)}`;
+          }).join("\n\n")}</div>
+        </details>` : ""}
       · ${r.started_at || ""}</div>`).join("") || `<span class="muted">暂无</span>`;
   } catch (e) { /* token 无效时忽略 */ }
 }
 async function loadAutoSync() {
   try {
     const s = await api("/api/admin/sync/auto-status");
+    const choice = `
+      <span style="display:inline-flex;gap:14px;align-items:center;margin-right:16px">
+        <label style="display:inline-flex;gap:6px;align-items:center">
+          <input type="radio" name="auto-sync-enabled" value="on" ${s.enabled ? "checked" : ""}>
+          开启
+        </label>
+        <label style="display:inline-flex;gap:6px;align-items:center">
+          <input type="radio" name="auto-sync-enabled" value="off" ${s.enabled ? "" : "checked"}>
+          关闭
+        </label>
+      </span>`;
+    document.querySelectorAll('input[name="auto-sync-enabled"]').forEach((input) => {
+      input.onchange = async () => {
+        try {
+          const next = input.value === "on";
+          await api("/api/admin/sync/auto-status", { method: "PUT", headers: H(),
+            body: JSON.stringify({ enabled: next }) });
+          toast(next ? "自动检测已开启" : "自动检测已关闭");
+          loadAutoSync();
+        } catch (e) {
+          toast("设置失败：" + e.message, 4000);
+          loadAutoSync();
+        }
+      };
+    });
     if (!s.enabled) {
-      $("auto-sync-status").innerHTML =
-        `<span class="muted">未开启（设 AUTO_SYNC_ENABLED=true 并配置 DHS_USERNAME / DHS_PASSWORD）</span>`;
+      $("auto-sync-status").innerHTML = choice;
       return;
     }
     const label = { success: "成功", partial: "部分成功", skipped: "已跳过", failed: "失败" }[s.last_status] || (s.last_status || "—");
@@ -414,7 +472,7 @@ async function loadAutoSync() {
     ];
     if (s.next_run_at) parts.push(`下次 ${s.next_run_at.replace("T", " ").slice(0, 19)}`);
     if (s.last_error) parts.push(`<span style="color:#b91c1c">${esc(s.last_error)}</span>`);
-    $("auto-sync-status").innerHTML = parts.join(" · ");
+    $("auto-sync-status").innerHTML = choice + parts.join(" · ");
   } catch (e) { /* ignore */ }
 }
 
@@ -519,7 +577,7 @@ async function loadAdminLineups() {
   } catch (e) { /* ignore */ }
 }
 
-async function loadAll() { await loadLeague(); await loadTeams(); await loadPlayers(); loadSchedule(); loadRuns(); loadAutoSync(); loadAdminBounties(); loadAdminClaims(); loadCaptains(); loadAdminLineups(); }
+async function loadAll() { await loadLeague(); await loadSyncCredentials(); await loadTeams(); await loadPlayers(); loadSchedule(); loadRuns(); loadAutoSync(); loadAdminBounties(); loadAdminClaims(); loadCaptains(); loadAdminLineups(); }
 loadAll().catch((e) => toast(e.message));
 </script>
 </body>

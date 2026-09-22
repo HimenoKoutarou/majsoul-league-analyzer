@@ -5,7 +5,7 @@ v1 限制：四麻；不实现包牌（大三元/大四喜责任払），pao 字
 """
 from datetime import datetime
 
-import liqi_combined_pb2 as pb
+from . import liqi_combined_pb2 as pb
 
 from app.services.paipu.yaku_names import YAKU_NAMES
 

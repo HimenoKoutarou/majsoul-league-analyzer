@@ -8,16 +8,24 @@ from app.models import GamePlayer, League, Player, Team
 
 def _rule(db: Session) -> dict:
     league = db.query(League).first()
-    return (league.score_rule if league else None) or {"rank_points": [90, 45, 0, -45]}
+    return (league.score_rule if league else None) or {
+        "rank_points": [90, 45, 0, -45],
+        "allow_negative": True,
+        "tiebreak": "raw_points",
+    }
 
 
 def _sort_key(row):
-    return (row["points"], row["raw_points"])
+    return (row["points"], row["_tiebreak_value"])
 
 
 def compute_standings(db: Session, by: str) -> dict:
     rule = _rule(db)
     rp = rule.get("rank_points", [90, 45, 0, -45])
+    allow_negative = bool(rule.get("allow_negative", True))
+    tiebreak = rule.get("tiebreak", "raw_points")
+    if tiebreak not in ("raw_points", "pt"):
+        tiebreak = "raw_points"
 
     q = (db.query(GamePlayer, Player, Team)
          .join(Player, GamePlayer.player_id == Player.id, isouter=True)
@@ -32,8 +40,8 @@ def compute_standings(db: Session, by: str) -> dict:
             meta[key] = {"name": team.name if team else "未分组",
                          "color": team.color if team else "#8b90a3"}
         else:
-            key = player.id
-            meta[key] = {"nickname": player.nickname,
+            key = player.id if player else ("deleted", gp.nickname)
+            meta[key] = {"nickname": player.nickname if player else gp.nickname,
                          "team_name": team.name if team else None,
                          "team_color": team.color if team else None}
         g = groups[key]
@@ -46,8 +54,13 @@ def compute_standings(db: Session, by: str) -> dict:
     rows = []
     for key, g in groups.items():
         row = dict(meta[key], **g)
+        if not allow_negative:
+            row["points"] = max(0, row["points"])
+        row["_tiebreak_value"] = row["pt"] if tiebreak == "pt" else row["raw_points"]
         row["avg_rank"] = round(
             sum((i + 1) * c for i, c in enumerate(g["rank_counts"])) / g["games"], 3)
         rows.append(row)
     rows.sort(key=_sort_key, reverse=True)
+    for row in rows:
+        row.pop("_tiebreak_value", None)
     return {"by": by, "rule": rule, "rows": rows}

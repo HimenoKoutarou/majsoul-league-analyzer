@@ -42,10 +42,11 @@
   </div>
 </div>
 <script type="module">
-import { api, esc, toast } from "/static/js/api.js";
+import { api, esc, toast, loadLeagueBrand } from "/static/js/api.js";
 
 const $ = (id) => document.getElementById(id);
 const today = () => new Date().toISOString().slice(0, 10);
+loadLeagueBrand();
 
 function statusTag(b) {
   if (b.status === "closed") return `<span class="tag">已满额</span>`;

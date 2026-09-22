@@ -1,5 +1,6 @@
 """悬赏板公开只读/提交 API（匿名 + 雀魂ID）。"""
 from datetime import date, datetime
+from urllib.parse import parse_qs, urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -27,6 +28,16 @@ def _parse_account(value) -> int | None:
     except (TypeError, ValueError):
         return None
     return v if v > 0 else None
+
+
+def _validate_share_url(value: str) -> str:
+    url = value.strip()
+    parsed = urlsplit(url)
+    if (parsed.scheme != "https" or parsed.hostname != "game.maj-soul.com"
+            or parsed.path.rstrip("/") != "/1"
+            or not parse_qs(parsed.query).get("paipu")):
+        raise HTTPException(422, "牌谱链接必须是有效的雀魂 HTTPS 分享链接")
+    return url
 
 
 def _serialize_bounty(b: Bounty, claimed_count: int) -> dict:
@@ -99,6 +110,7 @@ def create_claim(bounty_id: int, body: dict, db: Session = Depends(get_db)):
     share_url = str(body.get("share_url") or "").strip()
     if not share_url:
         raise HTTPException(422, "牌谱链接不能为空")
+    share_url = _validate_share_url(share_url)
     claim = BountyClaim(
         bounty_id=bounty_id, share_url=share_url,
         submitter_nickname=str(body.get("nickname") or "").strip(),

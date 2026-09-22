@@ -28,11 +28,12 @@
        id="detail-body"></div>
 </div>
 <script type="module">
-import { api, esc } from "/static/js/api.js";
+import { api, esc, loadLeagueBrand } from "/static/js/api.js";
 import { tileRow, renderDiscards } from "/static/js/tiles.js";
 
 let page = 1, total = 0;
 const rankBadge = (r) => `<span class="rank-badge rank-${r}">${r}</span>`;
+loadLeagueBrand();
 
 async function load() {
   const data = await api(`/api/games?page=${page}&size=20`);

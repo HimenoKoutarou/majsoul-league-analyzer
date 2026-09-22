@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 import app.config as config
 from app.db import get_db
 from app.main import create_app
-from app.models import Game, League, Player, Team
+from app.models import Game, GamePlayer, League, Player, ScheduleDay, Team
 
 SAMPLE = json.loads((Path(__file__).resolve().parents[1] / "sample_paipu.json").read_text(encoding="utf-8"))
 
@@ -48,11 +48,29 @@ def test_admin_requires_token(client):
 
 def test_admin_league_update(client, db):
     _seed_league(db)
-    r = client.put("/api/admin/league", json={"name": "2026夏季赛", "description": "desc"},
+    r = client.put("/api/admin/league", json={
+        "name": "2026夏季赛", "organizer": "测试主办方", "season": "夏季赛",
+        "description": "desc", "start_date": "2026-09-01", "end_date": "2026-10-31",
+        "contact": "test@example.com",
+    },
                    headers=_auth(client))
     assert r.status_code == 200
-    assert db.query(League).first().name == "2026夏季赛"
-    assert db.query(League).first().description == "desc"
+    league = db.query(League).first()
+    assert league.name == "2026夏季赛"
+    assert league.organizer == "测试主办方"
+    assert league.season == "夏季赛"
+    assert league.description == "desc"
+    assert league.start_date.isoformat() == "2026-09-01"
+    assert league.end_date.isoformat() == "2026-10-31"
+    assert league.contact == "test@example.com"
+    assert client.get("/api/league").json()["organizer"] == "测试主办方"
+
+
+def test_admin_league_rejects_invalid_date(client, db):
+    _seed_league(db)
+    r = client.put("/api/admin/league", json={"start_date": "not-a-date"},
+                   headers=_auth(client))
+    assert r.status_code == 422
 
 
 def test_admin_score_rule(client, db):
@@ -87,6 +105,80 @@ def test_admin_teams_players_crud(client, db):
     r = client.delete(f"/api/admin/teams/{team_id}", headers=_auth(client))
     assert r.status_code == 200
     assert db.query(Team).count() == 0
+
+
+def test_admin_team_numbers_are_unique_and_exposed(client, db):
+    _seed_league(db)
+    first = client.post("/api/admin/teams", json={"name": "一队"},
+                        headers=_auth(client))
+    assert first.status_code == 200
+    assert first.json()["team_number"] == 1
+
+    second = client.post("/api/admin/teams", json={"name": "二队", "team_number": 2},
+                         headers=_auth(client))
+    assert second.status_code == 200
+
+    duplicate = client.post("/api/admin/teams",
+                            json={"name": "重复编号", "team_number": 2},
+                            headers=_auth(client))
+    assert duplicate.status_code == 422
+    assert {row["team_number"] for row in client.get("/api/teams").json()} == {1, 2}
+
+
+def test_admin_schedule_can_be_saved_and_validated(client, db):
+    _seed_league(db)
+    for number in range(1, 6):
+        db.add(Team(name=f"队伍{number}", team_number=number))
+    db.commit()
+    body = {"rows": [
+        {"date": "2026-10-01", "team_numbers": [1, 2, 3, 4], "note": "开幕日"},
+        {"date": "2026-10-02", "team_numbers": [2, 3, 4, 5], "note": ""},
+    ]}
+    saved = client.put("/api/admin/schedule", json=body, headers=_auth(client))
+    assert saved.status_code == 200
+    assert saved.json()["count"] == 2
+    assert db.query(ScheduleDay).count() == 2
+
+    listed = client.get("/api/admin/schedule", headers=_auth(client))
+    assert listed.status_code == 200
+    assert listed.json() == [
+        {"id": listed.json()[0]["id"], "date": "2026-10-01",
+         "team_numbers": [1, 2, 3, 4], "note": "开幕日"},
+        {"id": listed.json()[1]["id"], "date": "2026-10-02",
+         "team_numbers": [2, 3, 4, 5], "note": ""},
+    ]
+
+    invalid = client.put(
+        "/api/admin/schedule",
+        json={"rows": [{"date": "2026-10-03", "team_numbers": [1, 1, 2, 3]}]},
+        headers=_auth(client),
+    )
+    assert invalid.status_code == 422
+
+
+def test_admin_schedule_rejects_unknown_team_number(client, db):
+    _seed_league(db)
+    for number in range(1, 4):
+        db.add(Team(name=f"队伍{number}", team_number=number))
+    db.commit()
+    r = client.put(
+        "/api/admin/schedule",
+        json={"rows": [{"date": "2026-10-03", "team_numbers": [1, 2, 3, 4]}]},
+        headers=_auth(client),
+    )
+    assert r.status_code == 422
+
+
+def test_admin_cannot_delete_player_with_history(client, db):
+    _seed_league(db)
+    db.add(Player(id=1, nickname="历史选手", account_id=1001))
+    db.add(Game(uuid="game-1"))
+    db.add(GamePlayer(game_uuid="game-1", seat=0, player_id=1,
+                      nickname="历史选手", rank=1, final_score=25000))
+    db.commit()
+    r = client.delete("/api/admin/players/1", headers=_auth(client))
+    assert r.status_code == 409
+    assert db.get(Player, 1) is not None
 
 
 def test_create_player_requires_account_id(client, db):

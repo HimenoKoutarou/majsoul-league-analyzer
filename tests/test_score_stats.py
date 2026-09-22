@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from app.models import GamePlayer, League, Player, Team
+from app.models import Game, GamePlayer, League, Player, Team
 from app.services.paipu.ingest import ingest_tenhou_game
 from app.services.score import compute_standings
 from app.services.stats import aggregate_games, team_stats, yaku_stats
@@ -61,3 +61,39 @@ def test_yaku_stats(db):
     _setup(db)
     ys = yaku_stats(db, by="player")
     assert "役牌 白(1飜)" in ys
+
+
+def test_standings_apply_negative_rule_and_tiebreak(db):
+    db.add(League(score_rule={
+        "rank_points": [90, 45, 0, -45],
+        "allow_negative": False,
+        "tiebreak": "pt",
+    }))
+    db.add_all([
+        Team(id=1, name="A队"),
+        Player(id=1, nickname="低素点", account_id=1, team_id=1),
+        Player(id=2, nickname="高素点", account_id=2, team_id=1),
+        Game(uuid="g1"),
+        Game(uuid="g2"),
+    ])
+    db.flush()
+    db.add_all([
+        GamePlayer(game_uuid="g1", seat=0, player_id=1, nickname="低素点",
+                   rank=4, final_score=30000, pt=1),
+        GamePlayer(game_uuid="g2", seat=0, player_id=2, nickname="高素点",
+                   rank=4, final_score=10000, pt=2),
+    ])
+    db.commit()
+    rows = compute_standings(db, by="player")["rows"]
+    assert [row["nickname"] for row in rows] == ["高素点", "低素点"]
+    assert all(row["points"] == 0 for row in rows)
+
+
+def test_standings_keep_deleted_player_history_readable(db):
+    db.add(League())
+    db.add(Game(uuid="orphan-game"))
+    db.add(GamePlayer(game_uuid="orphan-game", seat=0, player_id=None,
+                      nickname="已删除选手", rank=1, final_score=25000))
+    db.commit()
+    rows = compute_standings(db, by="player")["rows"]
+    assert rows[0]["nickname"] == "已删除选手"

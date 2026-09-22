@@ -28,10 +28,11 @@
   <div class="card"><h2>积分推移</h2><div id="trend-chart" class="chart"></div></div>
 </div>
 <script type="module">
-import { api, esc } from "/static/js/api.js";
+import { api, esc, loadLeagueBrand } from "/static/js/api.js";
 
 let by = "player";
 let options = [];
+loadLeagueBrand();
 
 function pct(x) { return (x * 100).toFixed(1) + "%"; }
 

@@ -50,12 +50,15 @@ def _seed(client, db):
                                      "account_id": 1000 + i},
                                headers=_auth(client)).json()["id"])
     client.put(f"/api/admin/teams/{team_id}/captain",
-               json={"username": "captain_red", "password": "secret1"},
+               json={"username": "captain_red"},
                headers=_auth(client))
     return team_id, other_id, ids
 
 
 def _login(client, username="captain_red", password="secret1"):
+    if password == "secret1":
+        rows = client.get("/api/admin/captains", headers=_auth(client)).json()
+        password = next(row["password"] for row in rows if row["username"] == username)
     return client.post("/api/captain/login",
                        json={"username": username, "password": password})
 
@@ -71,12 +74,13 @@ def test_matchday_rule():
 
 def test_captain_login_flow(client, db):
     _seed(client, db)
+    credentials = client.get("/api/admin/captains", headers=_auth(client)).json()[0]
     # 未登录 401
     assert client.get("/api/captain/me").status_code == 401
     # 错误密码
     assert _login(client, password="wrong").status_code == 401
     # 正确登录
-    r = _login(client)
+    r = client.post("/api/captain/login", json=credentials)
     assert r.status_code == 200
     me = client.get("/api/captain/me").json()
     assert me["team_name"] == "红中会"
@@ -84,14 +88,15 @@ def test_captain_login_flow(client, db):
 
 def test_captain_can_change_independent_password(client, db):
     _seed(client, db)
-    assert _login(client).status_code == 200
+    credentials = client.get("/api/admin/captains", headers=_auth(client)).json()[0]
+    assert client.post("/api/captain/login", json=credentials).status_code == 200
 
     r = client.put("/api/captain/password", json={"password": "newpass1"})
     assert r.status_code == 200
     assert client.post("/api/captain/login",
                        json={"username": "captain_red", "password": "newpass1"}).status_code == 200
     assert client.post("/api/captain/login",
-                       json={"username": "captain_red", "password": "secret1"}).status_code == 401
+                       json={"username": "captain_red", "password": credentials["password"]}).status_code == 401
 
 
 def test_new_team_gets_generated_captain_credentials(client, db):
@@ -102,6 +107,25 @@ def test_new_team_gets_generated_captain_credentials(client, db):
     assert credentials["username"] == f"team_{r.json()['id']}"
     assert len(credentials["password"]) >= 6
     assert client.post("/api/captain/login", json=credentials).status_code == 200
+
+
+def test_admin_can_view_generated_captain_password(client, db):
+    r = client.post("/api/admin/teams", json={"name": "可查看密码队"},
+                    headers=_auth(client))
+    assert r.status_code == 200
+    created = r.json()["captain"]
+    rows = client.get("/api/admin/captains", headers=_auth(client)).json()
+    row = next(item for item in rows if item["team_name"] == "可查看密码队")
+    assert row["username"] == created["username"]
+    assert row["password"] == created["password"]
+
+    reset = client.put(
+        f"/api/admin/teams/{r.json()['id']}/captain",
+        json={"password": "管理员不能指定这个密码"},
+        headers=_auth(client),
+    )
+    assert reset.status_code == 200
+    assert reset.json()["password"] != "管理员不能指定这个密码"
 
 
 def test_admin_captain_account_invalid(client, db):
@@ -308,8 +332,15 @@ def test_captain_logo_upload(client, db, monkeypatch):
     _login(client)
     from app.api import captain as cap_mod
     monkeypatch.setattr(cap_mod, "UPLOAD_DIR", Path("/tmp/_cpt_logo_test"))
+    png = (
+        b"\x89PNG\r\n\x1a\n"
+        b"\x00\x00\x00\x0dIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+        b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89"
+        b"\x00\x00\x00\x0aIDAT\x08\xd7c\xf8\xcf\xc0\xf0\x1f\x00\x05\x00\x01\xff"
+        b"\x89\x99=\x1d\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
     r = client.post("/api/captain/logo",
-                    files={"file": ("logo.png", b"\x89PNG\r\n\x1a\nfake", "image/png")})
+                    files={"file": ("logo.png", png, "image/png")})
     assert r.status_code == 200
     path = r.json()["logo_path"]
     assert path.startswith("/static/uploads/")
@@ -317,4 +348,7 @@ def test_captain_logo_upload(client, db, monkeypatch):
     # 非法后缀
     r = client.post("/api/captain/logo",
                     files={"file": ("logo.gif", b"fake", "image/gif")})
+    assert r.status_code == 422
+    r = client.post("/api/captain/logo",
+                    files={"file": ("logo.svg", b"<svg/>", "image/svg+xml")})
     assert r.status_code == 422

@@ -46,10 +46,11 @@
   <div id="lineup-area"><div class="muted">请选择比赛日…</div></div>
 </div>
 <script type="module">
-import { api, esc, toast } from "/static/js/api.js";
+import { api, esc, toast, loadLeagueBrand } from "/static/js/api.js";
 
 const $ = (id) => document.getElementById(id);
 let playersCache = [];
+loadLeagueBrand();
 
 async function guard() {
   try {

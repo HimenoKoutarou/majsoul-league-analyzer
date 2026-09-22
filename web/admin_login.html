@@ -5,15 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>管理员登录</title>
 <link rel="stylesheet" href="/static/css/main.css">
-<style>
-  .login-wrap { max-width: 360px; margin: 80px auto; }
-  .login-card { background: var(--card, #ffffff); padding: 28px 24px; border-radius: 12px;
-    border: 1px solid #e5e7eb; }
-  .login-card h2 { margin: 0 0 18px; }
-  .login-card label { display: block; margin-bottom: 14px; }
-  .login-card input { width: 100%; padding: 8px 10px; box-sizing: border-box; }
-  .login-card .btn { width: 100%; }
-</style>
 </head>
 <body>
 <nav class="nav">
@@ -37,9 +28,10 @@
   </div>
 </div>
 <script type="module">
-import { toast } from "/static/js/api.js";
+import { toast, loadLeagueBrand } from "/static/js/api.js";
 
 const $ = (id) => document.getElementById(id);
+loadLeagueBrand();
 $("login-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   $("err").textContent = "";

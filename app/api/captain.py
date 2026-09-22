@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 import app.config as config
 from app.db import get_db
 from app.models import Captain, Lineup, Player, Team
+from app.services.uploads import read_image_upload
 
 router = APIRouter(prefix="/captain")
 
@@ -20,7 +21,6 @@ COOKIE = "cpt_session"
 CUTOFF = dtime(18, 0)          # 比赛日 18:00 截止
 MATCH_WEEKDAYS = (3, 5, 7)     # 周三 / 周五 / 周日
 UPLOAD_DIR = Path(__file__).resolve().parents[2] / "web" / "uploads"
-ALLOWED_EXT = {".png", ".jpg", ".jpeg", ".webp", ".svg"}
 
 
 def _hash_password(username: str, password: str) -> str:
@@ -137,6 +137,7 @@ def change_password(body: dict, captain: tuple = Depends(current_captain),
     cap, _ = captain
     password = validate_password(body.get("password"))
     cap.password_hash = _hash_password(cap.username, password)
+    cap.password_plaintext = password
     db.commit()
     return {"ok": True}
 
@@ -225,6 +226,10 @@ def public_lineups(date_str: str | None = None, db: Session = Depends(get_db)):
             raise HTTPException(422, "日期无效（需 YYYY-MM-DD）")
     else:
         match_date = next_matchdays(1)[0]
+        # 当天比赛日过了 18:00 后，默认展示下一个比赛日。
+        # 这里直接判断当前时间，避免测试或调用方替换 is_locked 影响日期选择。
+        if match_date == date.today() and datetime.now().time() >= CUTOFF:
+            match_date = next_matchdays(2)[1]
     visible = is_locked(match_date)  # 18:00 截止后（含已过日期）才公开
     teams = db.query(Team).order_by(Team.sort_order, Team.id).all()
     lus = {(lu.team_id, lu.slot): lu for lu in db.query(Lineup).filter(
@@ -319,12 +324,7 @@ async def upload_logo(file: UploadFile, captain: tuple = Depends(current_captain
                       db: Session = Depends(get_db)):
     """队长上传本队 logo。"""
     _, team = captain
-    ext = Path(file.filename or "").suffix.lower()
-    if ext not in ALLOWED_EXT:
-        raise HTTPException(422, f"不支持的图片格式 {ext}")
-    data = await file.read()
-    if len(data) > 2 * 1024 * 1024:
-        raise HTTPException(422, "图片超过 2MB")
+    ext, data = await read_image_upload(file)
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     name = f"team_{team.id}_{secrets.token_hex(6)}{ext}"
     (UPLOAD_DIR / name).write_bytes(data)

@@ -24,9 +24,10 @@
   <div id="tables"></div>
 </div>
 <script type="module">
-import { api, esc } from "/static/js/api.js";
+import { api, esc, loadLeagueBrand } from "/static/js/api.js";
 
 const $ = (id) => document.getElementById(id);
+loadLeagueBrand();
 
 async function main() {
   const data = await api("/api/captain/public/lineups");

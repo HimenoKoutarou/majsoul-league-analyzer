@@ -25,11 +25,22 @@
   </div>
 
   <div id="tab-league" class="card">
-    <h3>联赛信息</h3>
-    <p><label>名称 <input id="lg-name" style="width:280px"></label>
-       <label>简介 <input id="lg-desc" style="width:320px"></label></p>
-    <p><label>赛事场ID <input id="lg-contest" type="number" style="width:120px"></label>
-       <button class="btn primary" id="lg-save">保存</button></p>
+    <div class="section-heading">
+      <div>
+        <h3>赛事信息</h3>
+        <p class="muted">设置后，赛事名称会显示在网站首页和所有页面的顶部导航。</p>
+      </div>
+      <button class="btn primary save-league-btn" id="lg-save" type="button">保存赛事信息</button>
+    </div>
+    <p><label>赛事名称 <input id="lg-name" style="width:280px"></label>
+       <label>赛季 <input id="lg-season" placeholder="例如：2026 夏季赛" style="width:180px"></label></p>
+    <p><label>主办方 <input id="lg-organizer" style="width:280px"></label>
+       <label>联系方式 <input id="lg-contact" placeholder="邮箱、群号或其他联系方式" style="width:280px"></label></p>
+    <p><label>开始日期 <input id="lg-start" type="date"></label>
+       <label>结束日期 <input id="lg-end" type="date"></label></p>
+    <p><label>赛事简介<br><textarea id="lg-desc" rows="3" style="width:620px;max-width:100%"></textarea></label></p>
+    <p><label>雀魂赛事场 ID <input id="lg-contest" type="number" style="width:120px"></label>
+       <span class="muted">用于同步赛事场数据，可稍后填写</span></p>
     <p><label>Logo <input type="file" id="lg-logo" accept=".png,.jpg,.jpeg,.webp,.svg"></label></p>
     <hr>
     <h3>积分规则</h3>
@@ -41,15 +52,38 @@
   </div>
 
   <div id="tab-teams" class="card" style="display:none">
-    <h3>队伍</h3>
+    <h3>队伍编号</h3>
+    <p class="muted">每支队伍使用唯一正整数编号。赛程表中填写这些编号，例如 1、2、3、4。</p>
     <div id="team-list" style="margin-bottom:16px"></div>
     <p>新增：<input id="team-name" placeholder="队名">
+       <input id="team-number" type="number" min="1" placeholder="编号" style="width:72px">
        <input id="team-short" placeholder="简称" style="width:80px">
-       <input id="team-color" type="color" value="#5b8cff">
+       <label class="color-control" title="队伍颜色">
+         <input id="team-color" type="color" value="#5b8cff" aria-label="队伍颜色">
+         <span id="team-color-preview" class="color-preview" style="background:#5b8cff"></span>
+       </label>
        <button class="btn" id="team-add">添加</button></p>
     <hr>
+    <div class="section-heading">
+      <div>
+        <h3>每日赛程（样表）</h3>
+        <p class="muted">每个比赛日填写当天上场的四支队伍编号。日期不能重复，四个编号不能重复。</p>
+      </div>
+      <div>
+        <button class="btn" id="schedule-add" type="button">新增日期</button>
+        <button class="btn primary" id="schedule-save" type="button">保存赛程</button>
+      </div>
+    </div>
+    <div class="table-scroll">
+      <table class="admin-table">
+        <thead><tr><th>比赛日期</th><th>第1队</th><th>第2队</th><th>第3队</th><th>第4队</th><th>备注</th><th></th></tr></thead>
+        <tbody id="schedule-list"></tbody>
+      </table>
+    </div>
+    <p id="schedule-empty" class="muted">暂无赛程。点击“新增日期”开始填写。</p>
+    <hr>
     <h3>队长账号（队长用账号密码登录后提交出战名单）</h3>
-    <p class="muted">密码不会保存明文。创建队伍或重置密码后，请记录下面显示的凭据；页面刷新后如遗失，请再次重置密码。</p>
+    <p class="muted">队长密码由系统自动生成，管理员只能查看；队长可在队长工作台修改密码。</p>
     <div id="captain-credentials" style="display:none;margin-bottom:12px;padding:10px;background:#fff7ed;border:1px solid #fed7aa"></div>
     <div id="captain-list" style="margin-bottom:16px"></div>
     <hr>
@@ -98,11 +132,12 @@
   </div>
 </div>
 <script type="module">
-import { api, toast, esc, isLoggedIn, logout } from "/static/js/api.js";
+import { api, toast, esc, isLoggedIn, logout, loadLeagueBrand, notifyLeagueBrandUpdated } from "/static/js/api.js";
 
 const $ = (id) => document.getElementById(id);
 const H = () => ({ "Content-Type": "application/json" });
 const authed = () => isLoggedIn();
+loadLeagueBrand();
 async function guard() {
   if (!(await authed())) {
     const next = encodeURIComponent(location.pathname + location.search);
@@ -136,16 +171,24 @@ document.querySelectorAll(".tabs .btn").forEach((b) => b.onclick = () => {
 
 async function loadLeague() {
   const lg = await api("/api/league");
-  $("lg-name").value = lg.name; $("lg-desc").value = lg.description || "";
+  $("lg-name").value = lg.name; $("lg-season").value = lg.season || "";
+  $("lg-organizer").value = lg.organizer || ""; $("lg-contact").value = lg.contact || "";
+  $("lg-start").value = lg.start_date || ""; $("lg-end").value = lg.end_date || "";
+  $("lg-desc").value = lg.description || "";
   $("lg-contest").value = lg.contest_id || "";
   const rp = lg.score_rule.rank_points;
   ["rp0", "rp1", "rp2", "rp3"].forEach((id, i) => $(id).value = rp[i]);
 }
 $("lg-save").onclick = async () => { if (!await guard()) return;
   await api("/api/admin/league", { method: "PUT", headers: H(),
-    body: JSON.stringify({ name: $("lg-name").value, description: $("lg-desc").value,
+    body: JSON.stringify({ name: $("lg-name").value, season: $("lg-season").value,
+      organizer: $("lg-organizer").value, contact: $("lg-contact").value,
+      start_date: $("lg-start").value, end_date: $("lg-end").value,
+      description: $("lg-desc").value,
       contest_id: +$("lg-contest").value || null }) });
-  toast("已保存"); };
+  await loadLeagueBrand();
+  notifyLeagueBrandUpdated();
+  toast("赛事信息已保存"); };
 $("lg-logo").onchange = async (e) => { if (!await guard()) return;
   const fd = new FormData(); fd.append("file", e.target.files[0]);
   const resp = await fetch("/api/admin/league/logo", {
@@ -166,8 +209,11 @@ async function loadTeams() {
     return `
       <div style="padding:8px 0;border-bottom:1px solid #e5e7eb">
         <div style="display:flex;gap:10px;align-items:center">
+          <label>编号 <input type="number" min="1" value="${t.team_number || ""}"
+            data-team-number="${t.id}" style="width:64px"></label>
           <span class="team-dot" style="background:${t.color}"></span><b>${esc(t.name)}</b>
           <span class="muted">${t.players.length} 名选手</span>
+          <button class="btn" data-save-team-number="${t.id}">保存编号</button>
           <button class="btn" data-del="${t.id}">删除</button>
         </div>
         <div style="margin:6px 0 0 20px;display:flex;gap:8px;flex-wrap:wrap">
@@ -178,6 +224,16 @@ async function loadTeams() {
   $("team-list").querySelectorAll("[data-del]").forEach((b) => b.onclick = async () => {
     if (!await guard()) return;
     await api(`/api/admin/teams/${b.dataset.del}`, { method: "DELETE" }); loadTeams(); loadPlayers(); });
+  $("team-list").querySelectorAll("[data-save-team-number]").forEach((b) => b.onclick = async () => {
+    if (!await guard()) return;
+    const input = $("team-list").querySelector(`[data-team-number="${b.dataset.saveTeamNumber}"]`);
+    try {
+      await api(`/api/admin/teams/${b.dataset.saveTeamNumber}`, {
+        method: "PUT", headers: H(), body: JSON.stringify({ team_number: +input.value }) });
+      toast("队伍编号已保存");
+      loadTeams();
+    } catch (e) { toast("保存失败：" + e.message, 4000); }
+  });
   $("pl-team").innerHTML = `<option value="">(无队伍)</option>` +
     teams.map((t) => `<option value="${t.id}">${esc(t.name)}</option>`).join("");
 }
@@ -185,13 +241,63 @@ $("team-add").onclick = async () => { if (!await guard()) return;
   try {
     const result = await api("/api/admin/teams", { method: "POST", headers: H(),
       body: JSON.stringify({ name: $("team-name").value, short_name: $("team-short").value,
-        color: $("team-color").value }) });
+        team_number: $("team-number").value, color: $("team-color").value }) });
     $("team-name").value = "";
+    $("team-number").value = "";
     showCaptainCredentials("队伍已创建", result.captain.username, result.captain.password);
     toast(`队伍已创建。账号：${result.captain.username}，初始密码已显示在队长账号区域`, 5000);
     loadTeams(); loadCaptains();
   } catch (e) { toast("创建失败：" + e.message, 4000); }
 };
+$("team-color").oninput = (e) => {
+  $("team-color-preview").style.background = e.target.value;
+};
+
+let scheduleRows = [];
+function renderSchedule() {
+  $("schedule-list").innerHTML = scheduleRows.map((row, index) => `
+    <tr data-schedule-row="${index}">
+      <td><input type="date" data-schedule-date value="${esc(row.date || "")}"></td>
+      ${[0, 1, 2, 3].map((i) => `<td><input type="number" min="1" data-schedule-team="${i}"
+        value="${row.team_numbers[i] || ""}" style="width:68px"></td>`).join("")}
+      <td><input data-schedule-note value="${esc(row.note || "")}" placeholder="备注"></td>
+      <td><button class="btn" data-schedule-delete type="button">删除</button></td>
+    </tr>`).join("");
+  $("schedule-empty").style.display = scheduleRows.length ? "none" : "";
+}
+function readScheduleRows() {
+  return [...$("schedule-list").querySelectorAll("[data-schedule-row]")].map((el) => ({
+    date: el.querySelector("[data-schedule-date]").value,
+    team_numbers: [0, 1, 2, 3].map((i) => el.querySelector(`[data-schedule-team="${i}"]`).value),
+    note: el.querySelector("[data-schedule-note]").value,
+  }));
+}
+$("schedule-add").onclick = () => {
+  scheduleRows = readScheduleRows();
+  scheduleRows.push({ date: "", team_numbers: ["", "", "", ""], note: "" });
+  renderSchedule();
+};
+$("schedule-list").onclick = (e) => {
+  if (!e.target.matches("[data-schedule-delete]")) return;
+  const row = e.target.closest("[data-schedule-row]");
+  scheduleRows = readScheduleRows().filter((_, i) => i !== +row.dataset.scheduleRow);
+  renderSchedule();
+};
+$("schedule-save").onclick = async () => {
+  if (!await guard()) return;
+  try {
+    const result = await api("/api/admin/schedule", {
+      method: "PUT", headers: H(), body: JSON.stringify({ rows: readScheduleRows() }) });
+    toast(`赛程已保存，共 ${result.count} 天`);
+    loadSchedule();
+  } catch (e) { toast("保存失败：" + e.message, 5000); }
+};
+async function loadSchedule() {
+  try {
+    scheduleRows = await api("/api/admin/schedule");
+    renderSchedule();
+  } catch (e) { /* ignore */ }
+}
 
 async function loadPlayers() {
   const teams = await api("/api/teams");
@@ -369,24 +475,9 @@ async function loadCaptains() {
     $("captain-list").innerHTML = rows.map((t) => `
       <div style="padding:8px 0;border-bottom:1px solid #e5e7eb;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         <span class="team-dot" style="background:${t.color}"></span><b>${esc(t.team_name)}</b>
-        <input data-cap-user="${t.team_id}" placeholder="队长用户名" value="${esc(t.username || "")}" style="width:150px">
-        <input data-cap-pass="${t.team_id}" type="text" placeholder="留空自动生成" style="width:150px">
-        ${t.generated_password ? `<span class="muted">初始密码：${esc(t.generated_password)}</span>` : ""}
-        <button class="btn primary" data-cap-save="${t.team_id}">重置密码</button>
+        <code>账号：${esc(t.username)}</code>
+        <code>密码：${esc(t.password || "—")}</code>
       </div>`).join("") || `<span class="muted">暂无队伍</span>`;
-    $("captain-list").querySelectorAll("[data-cap-save]").forEach((btn) => btn.onclick = async () => {
-      if (!await guard()) return;
-      const tid = btn.dataset.capSave;
-      const username = $("captain-list").querySelector(`[data-cap-user="${tid}"]`).value.trim();
-      const password = $("captain-list").querySelector(`[data-cap-pass="${tid}"]`).value;
-      try {
-        const result = await api(`/api/admin/teams/${tid}/captain`, { method: "PUT", headers: H(),
-          body: JSON.stringify({ username, password }) });
-        showCaptainCredentials("队长密码已重置", result.username, result.password);
-        toast(`已保存：${result.username}，新密码已显示在队长账号区域`, 5000);
-        loadCaptains();
-      } catch (e) { toast("失败：" + e.message, 4000); }
-    });
   } catch (e) { /* ignore */ }
 }
 async function loadAdminLineups() {
@@ -402,7 +493,7 @@ async function loadAdminLineups() {
   } catch (e) { /* ignore */ }
 }
 
-async function loadAll() { await loadLeague(); await loadTeams(); await loadPlayers(); loadRuns(); loadAutoSync(); loadAdminBounties(); loadAdminClaims(); loadCaptains(); loadAdminLineups(); }
+async function loadAll() { await loadLeague(); await loadTeams(); await loadPlayers(); loadSchedule(); loadRuns(); loadAutoSync(); loadAdminBounties(); loadAdminClaims(); loadCaptains(); loadAdminLineups(); }
 loadAll().catch((e) => toast(e.message));
 </script>
 </body>

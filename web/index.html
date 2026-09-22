@@ -49,8 +49,12 @@ async function main() {
   const league = await api("/api/league");
   document.getElementById("league-name").textContent = league.name;
   document.getElementById("brand").textContent = league.name;
+  const dates = league.start_date || league.end_date
+    ? ` · ${league.start_date || "未定"} 至 ${league.end_date || "未定"}` : "";
+  const organizer = league.organizer ? ` · 主办方：${league.organizer}` : "";
+  const season = league.season ? ` · ${league.season}` : "";
   document.getElementById("league-meta").textContent =
-    `${league.game_count} 场对局 · ${league.team_count} 支队伍 · ${league.player_count} 名选手`;
+    `${league.game_count} 场对局 · ${league.team_count} 支队伍 · ${league.player_count} 名选手${season}${organizer}${dates}`;
   document.getElementById("league-desc").textContent = league.description || "";
   if (league.logo_path) {
     const img = document.getElementById("logo");

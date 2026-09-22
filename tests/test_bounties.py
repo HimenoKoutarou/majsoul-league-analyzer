@@ -31,6 +31,10 @@ def _create_bounty(client, target_date="2099-01-01"):
     })
 
 
+def _share_url(index="1"):
+    return f"https://game.maj-soul.com/1/?paipu=test_{index}"
+
+
 def test_bounty_submit_pending_and_approve(client, db):
     r = _create_bounty(client)
     assert r.status_code == 200
@@ -94,12 +98,12 @@ def test_claim_flow_and_close(client, db):
     bid2 = r2.json()["id"]
     client.put(f"/api/admin/bounties/{bid2}", json={"status": "approved"},
                headers=_auth(client))
-    r = client.post(f"/api/bounties/{bid2}/claims", json={"share_url": "http://x/1"})
+    r = client.post(f"/api/bounties/{bid2}/claims", json={"share_url": _share_url("1")})
     assert r.status_code == 422
 
     # 到期后可提交
     r = client.post(f"/api/bounties/{bid}/claims",
-                    json={"share_url": "http://x/2", "nickname": "达成者", "note": "n"})
+                    json={"share_url": _share_url("2"), "nickname": "达成者", "note": "n"})
     assert r.status_code == 200
     cid = r.json()["id"]
     assert db.get(BountyClaim, cid).status == "pending"
@@ -115,7 +119,7 @@ def test_claim_flow_and_close(client, db):
     assert db.get(Bounty, bid).status == "closed"
 
     # 满额关闭后不能再提交
-    r = client.post(f"/api/bounties/{bid}/claims", json={"share_url": "http://x/3"})
+    r = client.post(f"/api/bounties/{bid}/claims", json={"share_url": _share_url("3")})
     assert r.status_code == 404
 
 
@@ -124,9 +128,22 @@ def test_claim_reject(client, db):
     bid = r.json()["id"]
     client.put(f"/api/admin/bounties/{bid}", json={"status": "approved"},
                headers=_auth(client))
-    r = client.post(f"/api/bounties/{bid}/claims", json={"share_url": "http://x/4"})
+    r = client.post(f"/api/bounties/{bid}/claims", json={"share_url": _share_url("4")})
     cid = r.json()["id"]
     client.put(f"/api/admin/claims/{cid}", json={"status": "rejected"},
                headers=_auth(client))
     assert db.get(BountyClaim, cid).status == "rejected"
     assert db.get(Bounty, bid).status == "approved"  # 驳回不关闭
+
+
+def test_claim_rejects_untrusted_share_url(client, db):
+    r = _create_bounty(client, target_date="2000-01-01")
+    bid = r.json()["id"]
+    client.put(f"/api/admin/bounties/{bid}", json={"status": "approved"},
+               headers=_auth(client))
+    for url in ("http://game.maj-soul.com/1/?paipu=x",
+                "https://evil.example/1/?paipu=x",
+                "javascript:alert(1)"):
+        response = client.post(f"/api/bounties/{bid}/claims",
+                               json={"share_url": url})
+        assert response.status_code == 422

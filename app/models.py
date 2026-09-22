@@ -14,8 +14,13 @@ class League(Base):
     __tablename__ = "league"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(64), default="麻将联赛")
+    organizer: Mapped[str] = mapped_column(String(128), default="")
+    season: Mapped[str] = mapped_column(String(64), default="")
     logo_path: Mapped[str | None] = mapped_column(String(255))
     description: Mapped[str] = mapped_column(Text, default="")
+    start_date: Mapped[date | None] = mapped_column(Date)
+    end_date: Mapped[date | None] = mapped_column(Date)
+    contact: Mapped[str] = mapped_column(String(255), default="")
     contest_id: Mapped[int | None] = mapped_column(Integer)
     score_rule: Mapped[dict] = mapped_column(JSON, default=lambda: dict(DEFAULT_SCORE_RULE))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
@@ -29,6 +34,16 @@ class Team(Base):
     logo_path: Mapped[str | None] = mapped_column(String(255))
     color: Mapped[str] = mapped_column(String(16), default="#5b8cff")
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    team_number: Mapped[int] = mapped_column(Integer, default=0, index=True)
+
+
+class ScheduleDay(Base):
+    """赛事每日赛程：每个比赛日安排四支队伍。"""
+    __tablename__ = "schedule_days"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    match_date: Mapped[date] = mapped_column(Date, unique=True, index=True)
+    team_numbers: Mapped[list] = mapped_column(JSON, default=list)
+    note: Mapped[str] = mapped_column(String(255), default="")
 
 
 class Player(Base):
@@ -124,6 +139,7 @@ class Captain(Base):
         ForeignKey("teams.id", ondelete="CASCADE"), unique=True, index=True)
     username: Mapped[str] = mapped_column(String(64), unique=True)
     password_hash: Mapped[str] = mapped_column(String(128))
+    password_plaintext: Mapped[str | None] = mapped_column(String(128))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
 
@@ -134,7 +150,7 @@ class Lineup(Base):
     team_id: Mapped[int] = mapped_column(ForeignKey("teams.id", ondelete="CASCADE"), index=True)
     match_date: Mapped[date] = mapped_column(Date)
     slot: Mapped[int] = mapped_column(Integer)  # 1=第一场 2=第二场
-    player_ids: Mapped[list] = mapped_column(JSON, default=list)  # 4 个 player id
+    player_ids: Mapped[list] = mapped_column(JSON, default=list)  # 每场 1 个 player id
     submitted_by: Mapped[str] = mapped_column(String(64), default="")
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
     __table_args__ = (UniqueConstraint("team_id", "match_date", "slot",

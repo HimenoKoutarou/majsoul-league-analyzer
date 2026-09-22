@@ -1,5 +1,6 @@
 """管理 API（cookie session 鉴权，Bearer token 兼容）。"""
 import secrets
+from datetime import date
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Header, HTTPException, UploadFile
@@ -8,15 +9,15 @@ from sqlalchemy.orm import Session
 import app.config as config
 from app.api.auth import current_user
 from app.db import get_db
-from app.models import Bounty, BountyClaim, Captain, Game, League, Lineup, Player, SyncRun, Team
+from app.models import (Bounty, BountyClaim, Captain, Game, GamePlayer, League, Lineup, Player,
+                        ScheduleDay, SyncRun, Team)
 from app.services.ninklang import fetch_tenhou
 from app.services.paipu.ingest import ingest_tenhou_game
+from app.services.uploads import read_image_upload
 
 router = APIRouter()
 
 UPLOAD_DIR = Path(__file__).resolve().parents[2] / "web" / "uploads"
-ALLOWED_EXT = {".png", ".jpg", ".jpeg", ".webp", ".svg"}
-
 
 def require_admin(user: str = Depends(current_user)):
     """鉴权：cookie session 优先，Bearer token 兼容 API/CI。"""
@@ -33,12 +34,7 @@ def _league(db: Session) -> League:
 
 
 async def _save_logo(file: UploadFile) -> str:
-    ext = Path(file.filename or "").suffix.lower()
-    if ext not in ALLOWED_EXT:
-        raise HTTPException(422, f"不支持的图片格式 {ext}")
-    data = await file.read()
-    if len(data) > 2 * 1024 * 1024:
-        raise HTTPException(422, "图片超过 2MB")
+    ext, data = await read_image_upload(file)
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     name = f"logo_{secrets.token_hex(6)}{ext}"
     (UPLOAD_DIR / name).write_bytes(data)
@@ -61,16 +57,37 @@ def _new_captain_credentials(db: Session, team: Team) -> tuple[str, str]:
     username = _captain_username(db, team.id)
     password = secrets.token_urlsafe(9)
     db.add(Captain(team_id=team.id, username=username,
-                   password_hash=_hash_password(username, password)))
+                   password_hash=_hash_password(username, password),
+                   password_plaintext=password))
     return username, password
 
 
 @router.put("/league", dependencies=[Depends(require_admin)])
 def update_league(body: dict, db: Session = Depends(get_db)):
     league = _league(db)
-    for key in ("name", "description", "contest_id"):
+    for key in ("name", "organizer", "season", "description", "contact"):
         if key in body and body[key] is not None:
             setattr(league, key, body[key])
+    from datetime import date
+    for key in ("start_date", "end_date"):
+        if key in body:
+            value = body[key]
+            if value in (None, ""):
+                setattr(league, key, None)
+            else:
+                try:
+                    setattr(league, key, date.fromisoformat(str(value)))
+                except ValueError:
+                    raise HTTPException(422, f"{key} 必须是 YYYY-MM-DD")
+    if "contest_id" in body:
+        value = body["contest_id"]
+        if value in (None, ""):
+            league.contest_id = None
+        else:
+            try:
+                league.contest_id = int(value)
+            except (TypeError, ValueError):
+                raise HTTPException(422, "赛事场ID必须是数字")
     db.commit()
     return {"ok": True}
 
@@ -89,11 +106,14 @@ def update_score_rule(body: dict, db: Session = Depends(get_db)):
     if (not isinstance(rp, list) or len(rp) != 4
             or not all(isinstance(x, (int, float)) for x in rp)):
         raise HTTPException(422, "rank_points 必须是4个数字")
+    tiebreak = body.get("tiebreak", "raw_points")
+    if tiebreak not in ("raw_points", "pt"):
+        raise HTTPException(422, "tiebreak 必须是 raw_points 或 pt")
     league = _league(db)
     league.score_rule = {
         "rank_points": rp,
         "allow_negative": bool(body.get("allow_negative", True)),
-        "tiebreak": body.get("tiebreak", "raw_points"),
+        "tiebreak": tiebreak,
     }
     db.commit()
     return {"score_rule": league.score_rule}
@@ -105,13 +125,26 @@ def create_team(body: dict, db: Session = Depends(get_db)):
         raise HTTPException(422, "队伍名称不能为空")
     if db.query(Team).filter(Team.name == body["name"]).first():
         raise HTTPException(422, "队伍已存在")
+    number = body.get("team_number")
+    if number in (None, ""):
+        number = (db.query(Team).order_by(Team.team_number.desc()).first().team_number
+                  if db.query(Team).count() else 0) + 1
+    try:
+        number = int(number)
+    except (TypeError, ValueError):
+        raise HTTPException(422, "队伍编号必须是数字")
+    if number <= 0:
+        raise HTTPException(422, "队伍编号必须是正整数")
+    if db.query(Team).filter(Team.team_number == number).first():
+        raise HTTPException(422, "队伍编号已存在")
     team = Team(name=body["name"], short_name=body.get("short_name", ""),
-                color=body.get("color", "#5b8cff"))
+                color=body.get("color", "#5b8cff"), team_number=number)
     db.add(team)
     db.flush()
     username, password = _new_captain_credentials(db, team)
     db.commit()
-    return {"id": team.id, "captain": {"username": username, "password": password}}
+    return {"id": team.id, "team_number": number,
+            "captain": {"username": username, "password": password}}
 
 
 @router.put("/teams/{team_id}", dependencies=[Depends(require_admin)])
@@ -119,11 +152,72 @@ def update_team(team_id: int, body: dict, db: Session = Depends(get_db)):
     team = db.get(Team, team_id)
     if not team:
         raise HTTPException(404)
+    if "team_number" in body and body["team_number"] is not None:
+        try:
+            number = int(body["team_number"])
+        except (TypeError, ValueError):
+            raise HTTPException(422, "队伍编号必须是数字")
+        if number <= 0:
+            raise HTTPException(422, "队伍编号必须是正整数")
+        duplicate = db.query(Team).filter(
+            Team.team_number == number, Team.id != team_id).first()
+        if duplicate:
+            raise HTTPException(422, "队伍编号已存在")
+        team.team_number = number
     for key in ("name", "short_name", "color", "sort_order"):
         if key in body and body[key] is not None:
             setattr(team, key, body[key])
     db.commit()
     return {"ok": True}
+
+
+@router.get("/schedule", dependencies=[Depends(require_admin)])
+def list_schedule(db: Session = Depends(get_db)):
+    rows = db.query(ScheduleDay).order_by(ScheduleDay.match_date).all()
+    return [{"id": row.id, "date": row.match_date.isoformat(),
+             "team_numbers": row.team_numbers or [], "note": row.note or ""}
+            for row in rows]
+
+
+@router.put("/schedule", dependencies=[Depends(require_admin)])
+def replace_schedule(body: dict, db: Session = Depends(get_db)):
+    rows = body.get("rows")
+    if not isinstance(rows, list):
+        raise HTTPException(422, "赛程必须是数组")
+    parsed = []
+    seen = set()
+    known_numbers = {
+        number for number, in db.query(Team.team_number)
+        if number is not None and number > 0
+    }
+    for row in rows:
+        if not isinstance(row, dict):
+            raise HTTPException(422, "赛程行格式无效")
+        try:
+            match_date = date.fromisoformat(str(row.get("date") or ""))
+        except ValueError:
+            raise HTTPException(422, "赛程日期必须是 YYYY-MM-DD")
+        if match_date in seen:
+            raise HTTPException(422, "赛程日期不能重复")
+        seen.add(match_date)
+        numbers = row.get("team_numbers", [])
+        if not isinstance(numbers, list) or len(numbers) != 4:
+            raise HTTPException(422, "每天必须填写四个队伍编号")
+        try:
+            numbers = [int(number) for number in numbers]
+        except (TypeError, ValueError):
+            raise HTTPException(422, "队伍编号必须是数字")
+        if any(number <= 0 for number in numbers) or len(set(numbers)) != 4:
+            raise HTTPException(422, "每天四个队伍编号必须为四个不同的正整数")
+        missing = sorted(set(numbers) - known_numbers)
+        if missing:
+            raise HTTPException(422, f"队伍编号不存在：{missing}")
+        parsed.append((match_date, numbers, str(row.get("note") or "")[:255]))
+    db.query(ScheduleDay).delete()
+    db.add_all([ScheduleDay(match_date=match_date, team_numbers=numbers, note=note)
+                for match_date, numbers, note in parsed])
+    db.commit()
+    return {"ok": True, "count": len(parsed)}
 
 
 @router.delete("/teams/{team_id}", dependencies=[Depends(require_admin)])
@@ -184,6 +278,8 @@ def delete_player(player_id: int, db: Session = Depends(get_db)):
     player = db.get(Player, player_id)
     if not player:
         raise HTTPException(404)
+    if db.query(GamePlayer).filter(GamePlayer.player_id == player_id).first():
+        raise HTTPException(409, "该选手已有历史对局，不能删除；请将其移出队伍")
     db.delete(player)
     db.commit()
     return {"ok": True}
@@ -393,9 +489,17 @@ def admin_list_captains(db: Session = Depends(get_db)):
             username, generated_password = _new_captain_credentials(db, team)
             captain = db.query(Captain).filter(Captain.team_id == team.id).first()
             changed = True
+        elif not captain.password_plaintext:
+            # 历史账号没有可显示的明文密码，首次查看时自动生成新密码。
+            generated_password = secrets.token_urlsafe(9)
+            from app.api.captain import _hash_password
+            captain.password_hash = _hash_password(captain.username, generated_password)
+            captain.password_plaintext = generated_password
+            changed = True
         out.append({
             "team_id": team.id, "team_name": team.name, "color": team.color,
             "username": captain.username, "has_account": True,
+            "password": generated_password or captain.password_plaintext,
             "generated_password": generated_password,
         })
     if changed:
@@ -405,22 +509,19 @@ def admin_list_captains(db: Session = Depends(get_db)):
 
 @router.put("/teams/{team_id}/captain", dependencies=[Depends(require_admin)])
 def admin_upsert_captain(team_id: int, body: dict, db: Session = Depends(get_db)):
-    """创建/重置某队队长账号密码。未提供凭据时自动生成。"""
-    from app.api.captain import _hash_password, validate_password
+    """自动生成或重新生成某队队长密码，管理员不能手动指定密码。"""
+    from app.api.captain import _hash_password
 
     team = db.get(Team, team_id)
     if not team:
         raise HTTPException(404, "队伍不存在")
     username = str(body.get("username") or "").strip()
-    password = str(body.get("password") or "")
     captain = db.query(Captain).filter(Captain.team_id == team.id).first()
     if username and len(username) < 3:
         raise HTTPException(422, "用户名至少 3 个字符")
     if not username:
         username = captain.username if captain else _captain_username(db, team.id)
-    if not password:
-        password = secrets.token_urlsafe(9)
-    validate_password(password)
+    password = secrets.token_urlsafe(9)
     if captain and captain.username != username:
         # 换用户名：释放旧用户名
         if db.query(Captain).filter(Captain.username == username).first():
@@ -432,6 +533,7 @@ def admin_upsert_captain(team_id: int, body: dict, db: Session = Depends(get_db)
         db.add(captain)
     captain.username = username
     captain.password_hash = _hash_password(username, password)
+    captain.password_plaintext = password
     db.commit()
     return {"ok": True, "team_id": team.id, "username": username, "password": password}
 

@@ -47,3 +47,31 @@ export function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g,
     (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
+
+let brandSyncStarted = false;
+
+export async function loadLeagueBrand() {
+  try {
+    const league = await api(`/api/league?brand_ts=${Date.now()}`, { cache: "no-store" });
+    document.querySelectorAll(".brand").forEach((el) => {
+      el.textContent = league.name || "联赛";
+    });
+    if (!brandSyncStarted) {
+      brandSyncStarted = true;
+      // 已打开的页面也能在管理员保存赛事信息后及时更新品牌名。
+      window.addEventListener("storage", (event) => {
+        if (event.key === "league-brand-updated") loadLeagueBrand();
+      });
+      window.setInterval(loadLeagueBrand, 5000);
+    }
+    return league;
+  } catch (e) {
+    return null;
+  }
+}
+
+export function notifyLeagueBrandUpdated() {
+  try {
+    localStorage.setItem("league-brand-updated", String(Date.now()));
+  } catch (e) { /* ignore storage restrictions */ }
+}

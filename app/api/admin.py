@@ -114,6 +114,32 @@ def update_sync_credentials(body: dict, db: Session = Depends(get_db)):
     return {"ok": True, "username": username, "persistent": True}
 
 
+@router.get("/lobby-credentials", dependencies=[Depends(require_admin)])
+def get_lobby_credentials(db: Session = Depends(get_db)):
+    league = _league(db)
+    return {
+        "username": league.lobby_username or config.MS_USERNAME,
+        "password": league.lobby_password or config.MS_PASSWORD,
+        "access_token": league.lobby_access_token or config.MS_ACCESS_TOKEN,
+        "persistent": bool(league.lobby_username or league.lobby_password or league.lobby_access_token),
+    }
+
+
+@router.put("/lobby-credentials", dependencies=[Depends(require_admin)])
+def update_lobby_credentials(body: dict, db: Session = Depends(get_db)):
+    username = str(body.get("username") or "").strip()
+    password = str(body.get("password") or "")
+    access_token = str(body.get("access_token") or "").strip()
+    if not ((username and password) or access_token):
+        raise HTTPException(422, "需要普通雀魂大厅账号密码，或 access_token")
+    league = _league(db)
+    league.lobby_username = username
+    league.lobby_password = password
+    league.lobby_access_token = access_token
+    db.commit()
+    return {"ok": True, "username": username, "persistent": True}
+
+
 @router.put("/league/logo", dependencies=[Depends(require_admin)])
 async def update_league_logo(file: UploadFile, db: Session = Depends(get_db)):
     league = _league(db)
@@ -471,6 +497,51 @@ def update_auto_sync_status(body: dict, db: Session = Depends(get_db)):
     db.commit()
     set_runtime_enabled(body["enabled"], SessionLocal)
     return auto_sync_status_endpoint(db)
+
+
+@router.get("/sync/live-status", dependencies=[Depends(require_admin)])
+def live_sync_status_endpoint(db: Session = Depends(get_db)):
+    from app.services.majsoul.live_sync import live_sync_state
+
+    state = live_sync_state()
+    league = _league(db)
+    if league.live_sync_enabled is not None:
+        state["enabled"] = bool(league.live_sync_enabled)
+    state["interval"] = league.live_sync_interval or config.LIVE_SYNC_INTERVAL
+    return state
+
+
+@router.put("/sync/live-status", dependencies=[Depends(require_admin)])
+def update_live_sync_status(body: dict, db: Session = Depends(get_db)):
+    if not isinstance(body.get("enabled"), bool):
+        raise HTTPException(422, "enabled 必须是布尔值")
+    from app.db import SessionLocal
+    from app.services.majsoul.live_sync import start_live_sync, stop_live_sync
+
+    league = _league(db)
+    username = league.lobby_username or config.MS_USERNAME
+    password = league.lobby_password or config.MS_PASSWORD
+    access_token = league.lobby_access_token or config.MS_ACCESS_TOKEN
+    if body["enabled"] and not ((username and password) or access_token):
+        raise HTTPException(422, "请先配置普通雀魂大厅账号，不能使用赛事场账号")
+
+    league.live_sync_enabled = body["enabled"]
+    if body.get("interval") is not None:
+        try:
+            league.live_sync_interval = max(10, int(body["interval"]))
+        except (TypeError, ValueError):
+            raise HTTPException(422, "interval 必须是数字")
+    db.commit()
+    if not body["enabled"]:
+        stop_live_sync()
+        return live_sync_status_endpoint(db)
+    started = start_live_sync(
+        SessionLocal, username, password, access_token=access_token,
+        interval=league.live_sync_interval,
+    )
+    if not started:
+        raise HTTPException(409, "大厅实时同步已经在运行")
+    return live_sync_status_endpoint(db)
 
 
 @router.post("/search-player", dependencies=[Depends(require_admin)])

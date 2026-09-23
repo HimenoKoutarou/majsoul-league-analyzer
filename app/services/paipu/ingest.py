@@ -68,7 +68,8 @@ def _seat_stats(analyses: list[dict]) -> list[dict]:
 
 
 def ingest_tenhou_game(db: Session, data: dict, fetched_via: str = "ninklang",
-                       account_ids: dict[int, int] | None = None) -> str:
+                       account_ids: dict[int, int] | None = None,
+                       *, commit: bool = True) -> str:
     """入库一场天凤格式牌谱。幂等（按 uuid 去重）。返回 uuid。
 
     account_ids: 座位 → 雀魂 account_id（DHS 通道提供；ninklang 通道为 None 走昵称匹配）。
@@ -114,5 +115,6 @@ def ingest_tenhou_game(db: Session, data: dict, fetched_via: str = "ninklang",
                           rank=ranks[seat], pt=pts[seat], stats=seat_stats[seat]))
     for i, (k, a) in enumerate(zip(log, analyses)):
         db.add(Kyoku(game_uuid=uuid, index=i, round_data=a["round"], data=k, summary=a))
-    db.commit()
+    if commit:
+        db.commit()
     return uuid

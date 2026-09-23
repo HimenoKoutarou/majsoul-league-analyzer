@@ -89,6 +89,39 @@ def test_sync_credentials_are_persistent_and_private(client, db):
     assert "sync_password" not in public
 
 
+def test_lobby_credentials_and_live_sync_require_credentials(client, db, monkeypatch):
+    _seed_league(db)
+
+    rejected = client.put("/api/admin/sync/live-status", json={"enabled": True},
+                          headers=_auth(client))
+    assert rejected.status_code == 422
+    assert db.query(League).first().live_sync_enabled is None
+
+    saved = client.put("/api/admin/lobby-credentials", json={
+        "username": "ordinary-user", "password": "ordinary-pass"
+    }, headers=_auth(client))
+    assert saved.status_code == 200
+    loaded = client.get("/api/admin/lobby-credentials", headers=_auth(client))
+    assert loaded.json()["username"] == "ordinary-user"
+    assert loaded.json()["password"] == "ordinary-pass"
+
+    monkeypatch.setattr("app.services.majsoul.live_sync.start_live_sync",
+                        lambda *args, **kwargs: True)
+    started = client.put("/api/admin/sync/live-status",
+                         json={"enabled": True, "interval": 30},
+                         headers=_auth(client))
+    assert started.status_code == 200
+    assert started.json()["enabled"] is True
+    assert db.query(League).first().live_sync_interval == 30
+
+    monkeypatch.setattr("app.services.majsoul.live_sync.stop_live_sync",
+                        lambda: True)
+    stopped = client.put("/api/admin/sync/live-status", json={"enabled": False},
+                         headers=_auth(client))
+    assert stopped.status_code == 200
+    assert stopped.json()["enabled"] is False
+
+
 def test_admin_score_rule(client, db):
     _seed_league(db)
     r = client.put("/api/admin/score-rule",

@@ -8,6 +8,8 @@ DATA_DIR = Path(os.environ.get("DATA_DIR", BASE_DIR / "data"))
 DATABASE_URL = os.environ.get("DATABASE_URL", f"sqlite:///{DATA_DIR / 'league.db'}")
 HOST = os.environ.get("HOST", "0.0.0.0")
 PORT = int(os.environ.get("PORT", "8000"))
+# 机器人只读事件 API 的独立凭证；不复用管理员 token。
+BOT_API_TOKEN = os.environ.get("BOT_API_TOKEN", "").strip()
 
 # 会话有效期（秒），默认 7 天
 SESSION_MAX_AGE = int(os.environ.get("SESSION_MAX_AGE", str(7 * 24 * 3600)))
@@ -23,6 +25,20 @@ DHS_PASSWORD = os.environ.get("DHS_PASSWORD", "").strip()
 DHS_WS = os.environ.get("DHS_WS", "wss://common-v2.maj-soul.com/contest_ws_gateway").strip()
 # 当前赛事后台 HTTP API 地址。
 DHS_API = os.environ.get("DHS_API", "https://contest-gate-202411.maj-soul.com").strip().rstrip("/")
+
+# 普通雀魂大厅账号，与赛事场组织者账号分开配置。
+MS_USERNAME = os.environ.get("MS_USERNAME", "").strip()
+MS_PASSWORD = os.environ.get("MS_PASSWORD", "")
+MS_ACCESS_TOKEN = os.environ.get("MS_ACCESS_TOKEN", "").strip()
+MS_OAUTH_TYPE = int(os.environ.get("MS_OAUTH_TYPE", "0"))
+# 大厅实时抓牌谱配置。
+LIVE_SYNC_ENABLED = os.environ.get("LIVE_SYNC_ENABLED", "").lower() in ("1", "true", "yes", "on")
+LIVE_SYNC_INTERVAL = max(10, int(os.environ.get("LIVE_SYNC_INTERVAL", "60")))
+LIVE_SYNC_FILTER_IDS = tuple(
+    int(item.strip()) for item in os.environ.get(
+        "LIVE_SYNC_FILTER_IDS", "216,215,225,226,224,223,212,211,208,209,221,222"
+    ).split(",") if item.strip().isdigit()
+)
 
 _admin_token_cache: str | None = None
 _admin_username_cache: str | None = None

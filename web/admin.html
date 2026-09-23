@@ -128,6 +128,13 @@
        <span class="muted" id="sync-status"></span></p>
     <p>起始日期 <input id="sync-start-date" type="date">
        <span class="muted">只同步该日期及之后的牌谱；留空则不限制日期</span></p>
+    <h3>大厅实时抓取</h3>
+    <p class="muted">必须填写普通雀魂大厅账号，不能填写赛事场组织者账号。</p>
+    <p>大厅账号 <input id="lobby-user" style="width:160px">
+       密码 <input id="lobby-pass" type="password" style="width:160px">
+       <button class="btn" id="lobby-credentials-save">保存大厅账号</button></p>
+    <p>扫描间隔 <input id="lobby-interval" type="number" min="10" value="60" style="width:80px"> 秒
+       <span id="live-sync-status" class="muted"></span></p>
     <hr>
     <h3>分享链接录入（无需账号）</h3>
     <p><input id="share-url" style="min-width:420px"
@@ -289,6 +296,42 @@ async function loadSyncCredentials() {
     $("sync-pass").value = credentials.password || "";
     $("init-pass").value = credentials.password || "";
   } catch (e) { /* ignore */ }
+}
+async function loadLobbyCredentials() {
+  try {
+    const credentials = await api("/api/admin/lobby-credentials");
+    $("lobby-user").value = credentials.username || "";
+    $("lobby-pass").value = credentials.password || "";
+    const status = await api("/api/admin/sync/live-status");
+    $("lobby-interval").value = status.interval || 60;
+    renderLiveSyncStatus(status);
+  } catch (e) { /* ignore */ }
+}
+$('lobby-credentials-save').onclick = async () => {
+  if (!await guard()) return;
+  try {
+    await api("/api/admin/lobby-credentials", { method: "PUT", headers: H(),
+      body: JSON.stringify({ username: $("lobby-user").value,
+        password: $("lobby-pass").value }) });
+    toast("大厅账号已保存");
+  } catch (e) { toast("保存失败：" + e.message, 4000); }
+};
+function renderLiveSyncStatus(s) {
+  const enabled = !!s.enabled;
+  const toggle = `<span style="display:inline-flex;gap:14px;align-items:center;margin-right:16px">
+    <label style="display:inline-flex;gap:6px;align-items:center"><input type="radio" name="live-sync-enabled" value="on" ${enabled ? "checked" : ""}> 开启</label>
+    <label style="display:inline-flex;gap:6px;align-items:center"><input type="radio" name="live-sync-enabled" value="off" ${enabled ? "" : "checked"}> 关闭</label>
+  </span>`;
+  const text = enabled ? `开启 · 待处理 ${s.pending || 0} · 上次 ${s.last_run_at ? s.last_run_at.replace("T", " ").slice(0, 19) : "—"}` : "关闭";
+  $("live-sync-status").innerHTML = toggle + text + (s.last_error ? ` · <span style="color:#b91c1c">${esc(s.last_error)}</span>` : "");
+  document.querySelectorAll('input[name="live-sync-enabled"]').forEach((input) => input.onchange = async () => {
+    try {
+      await api("/api/admin/sync/live-status", { method: "PUT", headers: H(),
+        body: JSON.stringify({ enabled: input.value === "on", interval: +$("lobby-interval").value || 60 }) });
+      toast(input.value === "on" ? "大厅实时抓取已开启" : "大厅实时抓取已关闭");
+      loadLobbyCredentials();
+    } catch (e) { toast("设置失败：" + e.message, 4000); loadLobbyCredentials(); }
+  });
 }
 $('sync-credentials-save').onclick = async () => {
   if (!await guard()) return;
@@ -617,7 +660,7 @@ async function loadAdminLineups() {
   } catch (e) { /* ignore */ }
 }
 
-async function loadAll() { await loadLeague(); await loadSyncCredentials(); await loadTeams(); await loadPlayers(); loadSchedule(); loadRuns(); loadAdminGames(); loadAutoSync(); loadAdminBounties(); loadAdminClaims(); loadCaptains(); loadAdminLineups(); }
+async function loadAll() { await loadLeague(); await loadSyncCredentials(); await loadLobbyCredentials(); await loadTeams(); await loadPlayers(); loadSchedule(); loadRuns(); loadAdminGames(); loadAutoSync(); loadAdminBounties(); loadAdminClaims(); loadCaptains(); loadAdminLineups(); }
 loadAll().catch((e) => toast(e.message));
 </script>
 </body>

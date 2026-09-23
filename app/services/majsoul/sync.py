@@ -39,7 +39,8 @@ async def _default_make_lobby(username: str, password: str):
     from app.services.majsoul.clients import LobbyClient
 
     client = LobbyClient()
-    await client.connect_login(username, password)
+    # DHS 账号属于赛事管理端，不应拿来登录普通大厅；历史赛事牌谱走 HTTP 回退。
+    await client.connect_login()
     return client
 
 

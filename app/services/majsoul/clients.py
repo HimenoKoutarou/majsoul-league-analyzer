@@ -1,11 +1,11 @@
-"""雀魂 DHS / 大厅客户端（真实网络实现；沙箱内不可达，联调留给部署环境）。"""
+"""雀魂 DHS / 大厅客户端。"""
 import hashlib
 import hmac
 import uuid as uuidlib
 from types import SimpleNamespace
 
 import httpx
-from google.protobuf.json_format import ParseDict
+from google.protobuf.json_format import MessageToDict
 
 import app.config as config
 from . import liqi_combined_pb2 as pb
@@ -14,6 +14,10 @@ from app.services.majsoul.codec import LiqiChannel, MajsoulApiError
 
 MS_HOST = "https://game.maj-soul.com"
 RECORD_HOST = "https://record-v2.maj-soul.com:5333/majsoul/game_record"
+
+
+class RecordNotReadyError(Exception):
+    """牌谱已被发现，但雀魂尚未提供完整数据。"""
 
 
 def majsoul_password_hash(password: str) -> str:
@@ -45,7 +49,10 @@ async def discover_lobby_endpoints() -> tuple[list[str], str]:
         except (httpx.HTTPError, ValueError, KeyError) as exc:
             raise MajsoulApiError(0, f"无法读取雀魂大厅配置：{type(exc).__name__}: {exc}") from exc
 
-        region = conf["ip"][0]
+        regions = conf.get("ip") or []
+        if not regions:
+            raise MajsoulApiError(0, "雀魂大厅配置中没有 player 区域")
+        region = next((item for item in regions if item.get("name") == "player"), regions[0])
         if "gateways" in region:  # 新版结构
             endpoints = []
             for gateway in region["gateways"]:
@@ -56,7 +63,8 @@ async def discover_lobby_endpoints() -> tuple[list[str], str]:
                     url = "wss://" + url[8:]
                 elif url.startswith("http://"):
                     url = "ws://" + url[7:]
-                endpoints.append(url.rstrip("/") + "/gateway")
+                endpoint = url.rstrip("/")
+                endpoints.append(endpoint if endpoint.endswith("/gateway") else endpoint + "/gateway")
         else:  # 旧版结构
             endpoints = []
             for item in region.get("region_urls", []):
@@ -67,7 +75,8 @@ async def discover_lobby_endpoints() -> tuple[list[str], str]:
                     url = "wss://" + url[8:]
                 elif url.startswith("http://"):
                     url = "ws://" + url[7:]
-                endpoints.append(url.rstrip("/") + "/gateway")
+                endpoint = url.rstrip("/")
+                endpoints.append(endpoint if endpoint.endswith("/gateway") else endpoint + "/gateway")
         return endpoints, version
 
 
@@ -213,17 +222,81 @@ class DHSClient:
 class LobbyClient:
     """牌谱详情客户端。
 
-    赛事管理账号不一定具备普通大厅登录权限，且大厅登录可能返回 151。
-    当前牌谱服务可按 UUID 直接下载完整牌谱，因此这里不再依赖大厅登录。
+    普通大厅账号客户端。赛事场组织者账号不应传到这里；赛事历史同步仍可
+    在没有大厅账号时使用固定牌谱服务作为兼容回退。
     """
 
-    def __init__(self):
+    def __init__(self, *, record_host: str = RECORD_HOST):
         self.channel = None
         self.http = None
+        self.version = ""
+        self.client_version_string = ""
+        self.record_host = record_host.rstrip("/")
+        self.account_id = None
 
-    async def connect_login(self, username: str, password: str):
+    async def connect_login(self, username: str | None = None,
+                            password: str | None = None,
+                            access_token: str | None = None,
+                            endpoints: list[str] | None = None):
+        """连接并登录普通大厅；不传账号时仅初始化 HTTP 回退客户端。"""
         self.http = httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=15.0))
-        return None
+        if not username and not access_token:
+            return None
+        endpoints, self.version = (endpoints, "") if endpoints else await discover_lobby_endpoints()
+        if not endpoints:
+            raise MajsoulApiError(0, "雀魂大厅配置中没有可用网关")
+        last_error = None
+        for endpoint in endpoints:
+            channel = LiqiChannel(endpoint)
+            try:
+                await channel.connect()
+                await channel.call("heartbeat", no_operation_counter=0)
+                self.client_version_string = f"web-{self.version}"
+                req = pb.ReqLogin(
+                    reconnect=False,
+                    device=pb.ClientDeviceInfo(
+                        platform="pc", hardware="pc", os="windows", os_version="win10",
+                        is_browser=True, software="Chrome", sale_platform="web",
+                        screen_width=1920, screen_height=1080,
+                    ),
+                    random_key=str(uuidlib.uuid4()),
+                    currency_platforms=[1, 2, 5, 6, 8, 10, 11],
+                    type=0,
+                    tag="cn",
+                    client_version_string=self.client_version_string,
+                )
+                if access_token:
+                    check = await channel.call(
+                        "oauth2Check", type=config.MS_OAUTH_TYPE,
+                        access_token=access_token,
+                    )
+                    if not check.has_account:
+                        raise MajsoulApiError(0, "大厅 access_token 无效或尚未绑定账号")
+                    oauth_req = pb.ReqOauth2Login(
+                        type=config.MS_OAUTH_TYPE,
+                        access_token=access_token,
+                        reconnect=False,
+                        device=req.device,
+                        random_key=req.random_key,
+                        currency_platforms=list(req.currency_platforms),
+                        tag=req.tag,
+                        client_version_string=req.client_version_string,
+                    )
+                    result = await channel.call_method("oauth2Login", oauth_req)
+                else:
+                    req.account = username
+                    req.password = majsoul_password_hash(password or "")
+                    result = await channel.call_method("login", req)
+                if not result.account_id:
+                    raise MajsoulApiError(0, "大厅登录未返回 account_id")
+                self.channel = channel
+                self.account_id = result.account_id
+                await channel.start_heartbeat()
+                return result
+            except Exception as exc:
+                last_error = exc
+                await channel.close()
+        raise MajsoulApiError(0, f"雀魂大厅登录失败：{last_error}") from last_error
 
     async def close(self):
         if self.channel:
@@ -234,8 +307,10 @@ class LobbyClient:
             self.http = None
 
     @staticmethod
-    def _record_head(raw: dict | None, game_uuid: str):
+    def _record_head(raw: dict | object | None, game_uuid: str):
         """将赛事 API 的 JSON 摘要转换成旧解析器使用的 RecordGame。"""
+        if isinstance(raw, pb.RecordGame):
+            return raw
         head = pb.RecordGame()
         raw = raw if isinstance(raw, dict) else {}
         source = raw.get("head") if isinstance(raw.get("head"), dict) else raw
@@ -258,20 +333,77 @@ class LobbyClient:
                     setattr(player, field, row[field])
         return head
 
+    async def fetch_game_live_list(self, filter_id: int):
+        if not self.channel:
+            raise MajsoulApiError(0, "大厅 WebSocket 未登录")
+        return await self.channel.call("fetchGameLiveList", filter_id=int(filter_id))
+
+    @staticmethod
+    def _parse_detail_payload(data: bytes):
+        detail = pb.GameDetailRecords()
+        try:
+            detail.ParseFromString(data)
+            if detail.version or detail.records or detail.actions:
+                return detail
+        except Exception:
+            pass
+        wrapper = pb.Wrapper()
+        wrapper.ParseFromString(data)
+        detail.ParseFromString(wrapper.data or data)
+        return detail
+
     async def fetch_record(self, game_uuid: str, raw: dict | None = None) -> dict:
         """从当前牌谱服务下载详情并返回统一牌谱结构。"""
         from app.services.majsoul.parse import parse_detail_records, record_head_to_game
 
+        head = None
+        data = None
+        if self.channel:
+            response = await self.channel.call(
+                "fetchGameRecord",
+                game_uuid=game_uuid,
+                client_version_string=self.client_version_string,
+            )
+            head = response.head
+            data = bytes(response.data or b"")
+            if not data and response.data_url:
+                if not self.http:
+                    self.http = httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=15.0))
+                download = await self.http.get(response.data_url)
+                download.raise_for_status()
+                data = download.content
+            if not head or not data:
+                raise RecordNotReadyError(f"牌谱 {game_uuid} 尚未完成")
+        else:
+            # DHS 历史同步的兼容回退，不要求赛事场账号具备大厅登录权限。
+            if not self.http:
+                self.http = httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=15.0))
+            response = await self.http.get(f"{self.record_host}/{game_uuid}")
+            if response.is_error:
+                raise MajsoulApiError(response.status_code, f"牌谱下载失败：HTTP {response.status_code}")
+            data = response.content
+
+        if head is not None and (not head.end_time or not data):
+            raise RecordNotReadyError(f"牌谱 {game_uuid} 尚未结束")
+        detail = self._parse_detail_payload(data)
+        out = record_head_to_game(self._record_head(head or raw, game_uuid))
+        out["log"] = parse_detail_records(detail)
+        return out
+
+    @staticmethod
+    def live_head_to_dict(head) -> dict:
+        return MessageToDict(head, preserving_proto_field_name=True)
+
+    async def fetch_record_http(self, game_uuid: str, raw: dict | None = None) -> dict:
+        """显式使用旧牌谱服务，供 DHS 历史补齐和兼容测试使用。"""
         if not self.http:
             self.http = httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=15.0))
-        response = await self.http.get(f"{RECORD_HOST}/{game_uuid}")
+        response = await self.http.get(f"{self.record_host}/{game_uuid}")
         if response.is_error:
             raise MajsoulApiError(response.status_code, f"牌谱下载失败：HTTP {response.status_code}")
         data = response.content
-        wrapper = pb.Wrapper()
-        wrapper.ParseFromString(data)
-        detail = pb.GameDetailRecords()
-        detail.ParseFromString(wrapper.data or data)
+        detail = self._parse_detail_payload(data)
+        from app.services.majsoul.parse import parse_detail_records, record_head_to_game
         out = record_head_to_game(self._record_head(raw, game_uuid))
         out["log"] = parse_detail_records(detail)
         return out

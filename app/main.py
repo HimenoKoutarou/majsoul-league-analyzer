@@ -51,9 +51,10 @@ def create_app() -> FastAPI:
                 response.headers["Cache-Control"] = "no-store, max-age=0"
         return response
 
-    from app.api import admin, auth, bounties, captain, public
+    from app.api import admin, auth, bot, bounties, captain, public
 
     application.include_router(public.router, prefix="/api")
+    application.include_router(bot.router, prefix="/api")
     application.include_router(bounties.router, prefix="/api")
     application.include_router(captain.router, prefix="/api")
     application.include_router(auth.router, prefix="/api/admin")
@@ -119,7 +120,12 @@ def init_db():
             "contact": "VARCHAR(255) NOT NULL DEFAULT ''",
             "sync_username": "VARCHAR(128) NOT NULL DEFAULT ''",
             "sync_password": "VARCHAR(255) NOT NULL DEFAULT ''",
+            "lobby_username": "VARCHAR(128) NOT NULL DEFAULT ''",
+            "lobby_password": "VARCHAR(255) NOT NULL DEFAULT ''",
+            "lobby_access_token": "VARCHAR(512) NOT NULL DEFAULT ''",
             "auto_sync_enabled": "BOOLEAN",
+            "live_sync_enabled": "BOOLEAN",
+            "live_sync_interval": "INTEGER NOT NULL DEFAULT 60",
         },
         "captains": {"password_plaintext": "VARCHAR(128)"},
         "teams": {"team_number": "INTEGER NOT NULL DEFAULT 0"},

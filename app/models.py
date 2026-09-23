@@ -24,7 +24,12 @@ class League(Base):
     contest_id: Mapped[int | None] = mapped_column(Integer)
     sync_username: Mapped[str] = mapped_column(String(128), default="")
     sync_password: Mapped[str] = mapped_column(String(255), default="")
+    lobby_username: Mapped[str] = mapped_column(String(128), default="")
+    lobby_password: Mapped[str] = mapped_column(String(255), default="")
+    lobby_access_token: Mapped[str] = mapped_column(String(512), default="")
     auto_sync_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    live_sync_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    live_sync_interval: Mapped[int] = mapped_column(Integer, default=60)
     score_rule: Mapped[dict] = mapped_column(JSON, default=lambda: dict(DEFAULT_SCORE_RULE))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
@@ -102,6 +107,35 @@ class SyncRun(Base):
     detail: Mapped[dict] = mapped_column(JSON, default=dict)
     started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class EventOutbox(Base):
+    """跨进程通知事件；业务数据和事件在同一个事务中提交。"""
+    __tablename__ = "event_outbox"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    event_type: Mapped[str] = mapped_column(String(64), index=True)
+    aggregate_id: Mapped[str] = mapped_column(String(64), index=True)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, index=True)
+    __table_args__ = (
+        UniqueConstraint("event_type", "aggregate_id", name="uq_event_outbox_type_aggregate"),
+    )
+
+
+class MajsoulFetchTask(Base):
+    """大厅实时发现的牌谱抓取任务，保证重启后可继续重试。"""
+    __tablename__ = "majsoul_fetch_tasks"
+    uuid: Mapped[str] = mapped_column(String(64), primary_key=True)
+    source: Mapped[str] = mapped_column(String(16), default="live")
+    filter_id: Mapped[int | None] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime, index=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str] = mapped_column(Text, default="")
+    raw_head: Mapped[dict] = mapped_column(JSON, default=dict)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
 class Bounty(Base):

@@ -4,8 +4,10 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.models import Game, GamePlayer, Kyoku, League, Player, Team
-from app.services.score import compute_standings
-from app.services.stats import aggregate_games, player_stats, team_stats, yaku_stats
+from app.services.score import compute_standings, raw_point_delta
+from app.services.stats import (aggregate_games, enriched_game_player_stats,
+                                 player_stats, profile_stats, team_stats,
+                                 yaku_stats)
 
 router = APIRouter()
 
@@ -85,6 +87,48 @@ def games_list(page: int = Query(1, ge=1), size: int = Query(20, ge=1, le=100),
     return {"total": total, "items": list(items.values())}
 
 
+@router.get("/stats/games")
+def stats_games(by: str = Query("player"), id: int | None = Query(None),
+                db: Session = Depends(get_db)):
+    """返回指定个人或队伍关联的全部对局，按时间倒序排列。"""
+    if by not in ("player", "team"):
+        raise HTTPException(400, "by 必须是 player 或 team")
+    if id is None:
+        return {"by": by, "id": None, "total": 0, "items": []}
+
+    related = db.query(Game.uuid).join(
+        GamePlayer, GamePlayer.game_uuid == Game.uuid
+    ).join(
+        Player, GamePlayer.player_id == Player.id, isouter=True
+    )
+    related = related.filter(
+        Player.team_id == id if by == "team" else GamePlayer.player_id == id
+    ).distinct()
+    game_ids = [game_uuid for (game_uuid,) in related.all()]
+    if not game_ids:
+        return {"by": by, "id": id, "total": 0, "items": []}
+
+    q = (db.query(Game, GamePlayer, Player, Team)
+         .join(GamePlayer, GamePlayer.game_uuid == Game.uuid)
+         .join(Player, GamePlayer.player_id == Player.id, isouter=True)
+         .join(Team, Player.team_id == Team.id, isouter=True)
+         .filter(Game.uuid.in_(game_ids))
+         .order_by(Game.start_time.desc().nullslast(), Game.uuid.desc()))
+    items: dict[str, dict] = {}
+    for game, gp, player, team in q.all():
+        item = items.setdefault(game.uuid, {
+            "uuid": game.uuid,
+            "start_time": game.start_time.isoformat() if game.start_time else None,
+            "rule": game.mode.get("disp", "") if game.mode else "",
+            "fetched_via": game.fetched_via,
+            "players": [],
+        })
+        item["players"].append(_serialize_gp(gp, player, team))
+    for item in items.values():
+        item["players"].sort(key=lambda player: player["seat"])
+    return {"by": by, "id": id, "total": len(items), "items": list(items.values())}
+
+
 @router.get("/games/{uuid}")
 def game_detail(uuid: str, db: Session = Depends(get_db)):
     game = db.get(Game, uuid)
@@ -119,7 +163,13 @@ def stats(by: str = Query("player"), id: int | None = Query(None),
          .join(Team, Player.team_id == Team.id, isouter=True))
     buckets: dict[object, list] = {}
     meta = {}
-    for gp, player, team in q.all():
+    query_rows = q.all()
+    game_players = [gp for gp, _player, _team in query_rows]
+    stats_by_gp = {
+        (gp.game_uuid, gp.seat): stats for gp, stats in zip(
+            game_players, enriched_game_player_stats(db, game_players))
+    }
+    for gp, player, team in query_rows:
         if by == "team":
             key = team.id if team else 0
             meta[key] = {"team_id": key, "name": team.name if team else "未分组"}
@@ -129,7 +179,9 @@ def stats(by: str = Query("player"), id: int | None = Query(None),
                          "nickname": player.nickname if player else gp.nickname,
                          "team_name": team.name if team else None}
         buckets.setdefault(key, []).append(
-            dict(gp.stats, rank=gp.rank, raw_points=gp.final_score, pt=gp.pt))
+            dict(stats_by_gp[(gp.game_uuid, gp.seat)], rank=gp.rank,
+                 raw_points=raw_point_delta(gp.final_score),
+                 final_score=gp.final_score, pt=gp.pt))
 
     rows = []
     for key, items in buckets.items():
@@ -144,6 +196,14 @@ def stats_yaku(by: str = Query("player"), id: int | None = Query(None),
     if by not in ("player", "team"):
         raise HTTPException(400, "by 必须是 player 或 team")
     return yaku_stats(db, by=by, target_id=id)
+
+
+@router.get("/stats/profile")
+def stats_profile(by: str = Query("player"), id: int | None = Query(None),
+                  db: Session = Depends(get_db)):
+    if by not in ("player", "team"):
+        raise HTTPException(400, "by 必须是 player 或 team")
+    return profile_stats(db, by=by, target_id=id)
 
 
 @router.get("/stats/trend")
@@ -175,11 +235,12 @@ def stats_trend(by: str = Query("player"), id: int | None = Query(None),
             label = player.nickname if player else gp.nickname
         entry = acc.setdefault(key, {
             ("team_id" if by == "team" else "player_id"): key, "name": label,
-            "games": [], "points": [], "raw_points": []})
+            "games": [], "ranks": [], "points": [], "raw_points": []})
         prev_p = entry["points"][-1] if entry["points"] else 0
         prev_r = entry["raw_points"][-1] if entry["raw_points"] else 0
         entry["games"].append(game.start_time.isoformat() if game.start_time else game.uuid)
+        entry["ranks"].append(gp.rank)
         points = prev_p + (rp[gp.rank - 1] if 1 <= gp.rank <= 4 else 0)
         entry["points"].append(points if allow_negative else max(0, points))
-        entry["raw_points"].append(prev_r + gp.final_score)
+        entry["raw_points"].append(round(prev_r + raw_point_delta(gp.final_score), 3))
     return {"by": by, "rows": list(acc.values())}

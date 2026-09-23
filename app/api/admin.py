@@ -9,8 +9,8 @@ from sqlalchemy.orm import Session
 import app.config as config
 from app.api.auth import current_user
 from app.db import get_db
-from app.models import (Bounty, BountyClaim, Captain, Game, GamePlayer, League, Lineup, Player,
-                        ScheduleDay, SyncRun, Team)
+from app.models import (Bounty, BountyClaim, Captain, Game, GamePlayer, Kyoku, League,
+                        Lineup, Player, ScheduleDay, SyncRun, Team)
 from app.services.ninklang import fetch_tenhou
 from app.services.paipu.ingest import ingest_tenhou_game
 from app.services.schedule import schedule_view
@@ -310,11 +310,30 @@ def update_player(player_id: int, body: dict, db: Session = Depends(get_db)):
     player = db.get(Player, player_id)
     if not player:
         raise HTTPException(404)
-    for key in ("nickname", "account_id", "team_id"):
-        if key in body:
-            setattr(player, key, body[key])
+    if "nickname" in body and body["nickname"] is not None:
+        nickname = str(body["nickname"]).strip()
+        if not nickname:
+            raise HTTPException(422, "昵称不能为空")
+        player.nickname = nickname
+    if "account_id" in body and body["account_id"] is not None:
+        try:
+            player.account_id = int(body["account_id"])
+        except (TypeError, ValueError):
+            raise HTTPException(422, "雀魂ID必须是数字")
+    if "team_id" in body:
+        value = body["team_id"]
+        if value in (None, ""):
+            player.team_id = None
+        else:
+            try:
+                team_id = int(value)
+            except (TypeError, ValueError):
+                raise HTTPException(422, "队伍ID必须是数字")
+            if not db.get(Team, team_id):
+                raise HTTPException(422, "目标队伍不存在")
+            player.team_id = team_id
     db.commit()
-    return {"ok": True}
+    return {"ok": True, "player_id": player.id, "team_id": player.team_id}
 
 
 @router.delete("/players/{player_id}", dependencies=[Depends(require_admin)])
@@ -327,6 +346,20 @@ def delete_player(player_id: int, db: Session = Depends(get_db)):
     db.delete(player)
     db.commit()
     return {"ok": True}
+
+
+@router.delete("/games/{uuid}", dependencies=[Depends(require_admin)])
+def delete_game(uuid: str, db: Session = Depends(get_db)):
+    """删除一场牌谱及其局记录，保留选手和队伍。"""
+    game = db.get(Game, uuid)
+    if not game:
+        raise HTTPException(404, "牌谱不存在")
+    db.query(Kyoku).filter(Kyoku.game_uuid == uuid).delete(synchronize_session=False)
+    db.query(GamePlayer).filter(GamePlayer.game_uuid == uuid).delete(
+        synchronize_session=False)
+    db.delete(game)
+    db.commit()
+    return {"ok": True, "uuid": uuid}
 
 
 @router.post("/games/ingest", dependencies=[Depends(require_admin)])

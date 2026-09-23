@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Game, GamePlayer, Kyoku, Player
 from app.services.paipu.kyoku import analyze_kyoku
+from app.services.stats import _is_mangan_or_above, is_countable_yaku
 
 
 def _find_or_create_player(db: Session, nickname: str, account_id: int | None) -> Player:
@@ -47,9 +48,19 @@ def _seat_stats(analyses: list[dict]) -> list[dict]:
             stats[ag["winner"]]["win"] += 1
             if ag["tsumo"]:
                 stats[ag["winner"]]["tsumo"] += 1
+                for seat in range(4):
+                    if seat == ag["winner"]:
+                        continue
+                    stats[seat]["tsumo_loss_count"] += 1
+                    if _is_mangan_or_above(ag):
+                        stats[seat]["bust_count"] += 1
+                        stats[seat]["bust_score_total"] += ag["score"]
+            if not a["seats"][ag["winner"]]["riichi"]:
+                stats[ag["winner"]]["silent_wins"] += 1
             stats[ag["winner"]]["win_score"] += ag["score"]
             for name in ag["yaku"]:
-                yaku[ag["winner"]][name] += 1
+                if is_countable_yaku(name):
+                    yaku[ag["winner"]][name] += 1
             if not ag["tsumo"]:
                 stats[ag["loser"]]["dealin"] += 1
                 stats[ag["loser"]]["dealin_score"] += ag["score"]

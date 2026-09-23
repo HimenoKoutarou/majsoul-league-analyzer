@@ -73,7 +73,7 @@ async function main() {
       ${r.rank_counts.map((c) => `<td>${c}</td>`).join("")}
       <td>${r.avg_rank.toFixed(2)}</td>
       <td><b>${r.points}</b></td>
-      <td class="muted">${r.raw_points}</td>
+      <td class="muted">${r.raw_points > 0 ? "+" : ""}${Number(r.raw_points || 0).toFixed(1)}</td>
     </tr>`).join("") || `<tr><td colspan="10" class="muted">暂无对局数据</td></tr>`;
 
   const games = await api("/api/games?size=5");

@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 import app.config as config
 from app.db import get_db
 from app.main import create_app
-from app.models import Game, GamePlayer, League, Player, ScheduleDay, Team
+from app.models import Game, GamePlayer, Kyoku, League, Player, ScheduleDay, Team
 
 SAMPLE = json.loads((Path(__file__).resolve().parents[1] / "sample_paipu.json").read_text(encoding="utf-8"))
 
@@ -121,6 +121,50 @@ def test_admin_teams_players_crud(client, db):
     r = client.delete(f"/api/admin/teams/{team_id}", headers=_auth(client))
     assert r.status_code == 200
     assert db.query(Team).count() == 0
+
+
+def test_admin_can_move_player_between_teams(client, db):
+    _seed_league(db)
+    first = Team(name="一队", team_number=1)
+    second = Team(name="二队", team_number=2)
+    db.add_all([first, second])
+    db.flush()
+    player = Player(nickname="可转队选手", account_id=101, team_id=first.id)
+    db.add(player)
+    db.commit()
+
+    moved = client.put(f"/api/admin/players/{player.id}",
+                       json={"team_id": second.id}, headers=_auth(client))
+    assert moved.status_code == 200
+    assert moved.json()["team_id"] == second.id
+    assert db.get(Player, player.id).team_id == second.id
+
+    invalid = client.put(f"/api/admin/players/{player.id}",
+                         json={"team_id": 9999}, headers=_auth(client))
+    assert invalid.status_code == 422
+
+
+def test_admin_can_delete_game_and_related_rows(client, db):
+    _seed_league(db)
+    player = Player(nickname="牌谱选手", account_id=102)
+    db.add(player)
+    db.add(Game(uuid="deletable-game"))
+    db.flush()
+    db.add(GamePlayer(game_uuid="deletable-game", seat=0, player_id=player.id,
+                      nickname=player.nickname, rank=1, final_score=25000))
+    db.add(Kyoku(game_uuid="deletable-game", index=0, round_data=[0, 0, 0],
+                 data=[], summary={}))
+    db.commit()
+
+    deleted = client.delete("/api/admin/games/deletable-game", headers=_auth(client))
+    assert deleted.status_code == 200
+    assert db.get(Game, "deletable-game") is None
+    assert db.query(GamePlayer).filter_by(game_uuid="deletable-game").count() == 0
+    assert db.query(Kyoku).filter_by(game_uuid="deletable-game").count() == 0
+    assert db.get(Player, player.id) is not None
+
+    missing = client.delete("/api/admin/games/deletable-game", headers=_auth(client))
+    assert missing.status_code == 404
 
 
 def test_admin_team_numbers_are_unique_and_exposed(client, db):

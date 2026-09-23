@@ -134,6 +134,10 @@
        placeholder="https://game.maj-soul.com/1/?paipu=xxxx">
        <button class="btn primary" id="ingest-btn">录入</button></p>
     <hr>
+    <h3>牌谱管理</h3>
+    <p class="muted">删除牌谱只会移除该场对局及其局记录，队员、队伍和其他牌谱不会受影响。</p>
+    <div id="admin-game-list"></div>
+    <hr>
     <h3>自动检测（赛事场有更新自动同步）</h3>
     <div id="auto-sync-status" class="muted">加载中…</div>
     <hr>
@@ -352,19 +356,26 @@ async function loadPlayers() {
   const teams = await api("/api/teams");
   const players = await api("/api/admin/players");
   $("player-list").innerHTML = players.map((p) => `
-    <div style="display:flex;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid #e5e7eb">
+    <div style="display:flex;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid #e5e7eb;flex-wrap:wrap">
       <b>${esc(p.nickname)}</b>
       <span class="muted">雀魂ID ${p.account_id ?? "—"}</span>
       <select data-pid="${p.id}">
         <option value="">(无队伍)</option>
         ${teams.map((t) => `<option value="${t.id}" ${p.team_id === t.id ? "selected" : ""}>${esc(t.name)}</option>`).join("")}
       </select>
+      <button class="btn" data-move-player="${p.id}" type="button">移动到所选队伍</button>
     </div>`).join("") || `<span class="muted">暂无选手</span>`;
-  $("player-list").querySelectorAll("select[data-pid]").forEach((sel) => sel.onchange = async () => {
+  $("player-list").querySelectorAll("button[data-move-player]").forEach((button) => button.onclick = async () => {
     if (!await guard()) return;
-    await api(`/api/admin/players/${sel.dataset.pid}`, { method: "PUT", headers: H(),
-      body: JSON.stringify({ team_id: +sel.value || null }) });
-    toast("已分配队伍"); loadTeams(); });
+    const select = $("player-list").querySelector(`select[data-pid="${button.dataset.movePlayer}"]`);
+    try {
+      const teamName = select.options[select.selectedIndex].textContent;
+      await api(`/api/admin/players/${button.dataset.movePlayer}`, { method: "PUT", headers: H(),
+        body: JSON.stringify({ team_id: +select.value || null }) });
+      toast(`已将队员移动到${teamName}`);
+      loadTeams();
+    } catch (e) { toast("移动失败：" + e.message, 4000); }
+  });
 }
 $("pl-add").onclick = async () => { if (!await guard()) return;
   const nickname = $("pl-nick").value.trim();
@@ -411,6 +422,35 @@ $("ingest-btn").onclick = async () => { if (!await guard()) return;
     toast(`已录入 ${r.uuid}`);
     loadRuns();
   } catch (e) { toast("失败：" + e.message, 5000); } };
+async function loadAdminGames() {
+  if (!authed()) return;
+  try {
+    const data = await api("/api/games?page=1&size=100");
+    $("admin-game-list").innerHTML = data.items.map((g) => `
+      <div style="display:flex;gap:10px;align-items:center;justify-content:space-between;
+          padding:8px 0;border-bottom:1px solid #e5e7eb;flex-wrap:wrap">
+        <div>
+          <b>${esc(g.start_time || "时间未知")}</b>
+          <span class="muted"> · ${esc(g.rule || "")}</span>
+          <div class="muted" style="font-size:12px">${esc(g.uuid)} · ${g.players.map((p) => esc(p.nickname)).join("、")}</div>
+        </div>
+        <button class="btn" data-delete-game="${esc(g.uuid)}" type="button">删除牌谱</button>
+      </div>`).join("") || `<span class="muted">暂无牌谱</span>`;
+    $("admin-game-list").querySelectorAll("[data-delete-game]").forEach((button) => {
+      button.onclick = async () => {
+        if (!await guard()) return;
+        const uuid = button.dataset.deleteGame;
+        if (!confirm(`确定删除牌谱 ${uuid}？此操作不可撤销。`)) return;
+        try {
+          await api(`/api/admin/games/${encodeURIComponent(uuid)}`, { method: "DELETE" });
+          toast("牌谱已删除");
+          loadAdminGames();
+          loadLeague();
+        } catch (e) { toast("删除失败：" + e.message, 4000); }
+      };
+    });
+  } catch (e) { $("admin-game-list").textContent = "牌谱加载失败：" + e.message; }
+}
 async function loadRuns() {
   if (!authed()) return;
   try {
@@ -577,7 +617,7 @@ async function loadAdminLineups() {
   } catch (e) { /* ignore */ }
 }
 
-async function loadAll() { await loadLeague(); await loadSyncCredentials(); await loadTeams(); await loadPlayers(); loadSchedule(); loadRuns(); loadAutoSync(); loadAdminBounties(); loadAdminClaims(); loadCaptains(); loadAdminLineups(); }
+async function loadAll() { await loadLeague(); await loadSyncCredentials(); await loadTeams(); await loadPlayers(); loadSchedule(); loadRuns(); loadAdminGames(); loadAutoSync(); loadAdminBounties(); loadAdminClaims(); loadCaptains(); loadAdminLineups(); }
 loadAll().catch((e) => toast(e.message));
 </script>
 </body>

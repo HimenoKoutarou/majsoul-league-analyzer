@@ -15,26 +15,142 @@
 </nav>
 <div class="container">
   <h1>数据分析</h1>
-  <div class="tabs">
-    <button class="btn on" data-by="player">按玩家</button>
-    <button class="btn" data-by="team">按队伍</button>
-    <select id="target" style="min-width:200px"></select>
+  <div class="analysis-toolbar">
+    <div class="tabs" id="view-tabs">
+      <button class="btn on" data-view="detail">个人数据</button>
+      <button class="btn" data-view="compare">全员比较</button>
+      <button class="btn" data-view="team">队伍数据</button>
+    </div>
+    <div class="tabs" id="group-tabs">
+      <select id="target" style="min-width:200px"></select>
+    </div>
   </div>
-  <div class="stat-cards" id="cards"></div>
-  <div class="grid-2">
-    <div class="card"><h2>顺位分布</h2><div id="rank-chart" class="chart" style="height:300px"></div></div>
-    <div class="card"><h2>役种频次</h2><div id="yaku-chart" class="chart" style="height:300px"></div></div>
-  </div>
-  <div class="card"><h2>积分推移</h2><div id="trend-chart" class="chart"></div></div>
+  <section id="compare-view" class="card leaderboard-card" hidden>
+    <div class="section-heading">
+      <div>
+        <h2>全员成绩表</h2>
+        <p class="muted">所有选手集中比较；点击选手可查看个人详情。</p>
+      </div>
+    </div>
+    <div class="comparison-scroll">
+      <table class="comparison-table leaderboard-table">
+        <thead><tr>
+          <th>名次</th><th>所属</th><th>选手 / 队伍</th><th>积分</th><th>素点</th>
+          <th>场次</th><th>平均顺位</th><th>1着</th><th>2着</th><th>3着</th><th>4着</th>
+          <th>TOP率</th><th>连对率</th><th>放铳率</th><th>最高得点</th>
+        </tr></thead>
+        <tbody id="comparison-body"></tbody>
+      </table>
+    </div>
+  </section>
+  <section id="team-view" class="card leaderboard-card" hidden>
+    <div class="section-heading">
+      <div>
+        <h2>队伍成绩表</h2>
+        <p class="muted">每队先显示队伍汇总，随后列出该队名册中的个人成绩。</p>
+      </div>
+    </div>
+    <div class="comparison-scroll">
+      <table class="comparison-table leaderboard-table">
+        <thead><tr>
+          <th>名次</th><th>所属</th><th>选手 / 队伍</th><th>积分</th><th>素点</th>
+          <th>场次</th><th>平均顺位</th><th>1着</th><th>2着</th><th>3着</th><th>4着</th>
+          <th>TOP率</th><th>连对率</th><th>放铳率</th><th>最高得点</th>
+        </tr></thead>
+        <tbody id="team-body"></tbody>
+      </table>
+    </div>
+  </section>
+  <section id="team-games-panel" class="card associated-games-panel" hidden>
+    <div class="section-heading">
+      <div>
+        <h2>相关对局</h2>
+        <p class="muted" id="team-games-summary"></p>
+      </div>
+    </div>
+    <div id="team-games-list"></div>
+  </section>
+  <section id="detail-view">
+    <div class="profile-heading">
+      <div>
+        <h2 id="detail-name">个人数据</h2>
+        <span id="detail-team" class="muted"></span>
+      </div>
+      <span class="profile-mode">联赛统计</span>
+    </div>
+    <div class="profile-overview">
+      <section class="profile-block">
+        <h3>最近走势</h3>
+        <div id="trend-chart" class="chart"></div>
+      </section>
+      <section class="profile-block">
+        <h3>累计战绩</h3>
+        <div id="rank-chart" class="chart profile-rank-chart"></div>
+      </section>
+    </div>
+    <div class="profile-tabs tabs" id="detail-tabs">
+      <button class="btn on" data-panel="basic">基本</button>
+      <button class="btn" data-panel="riichi">立直</button>
+      <button class="btn" data-panel="more">更多</button>
+      <button class="btn" data-panel="distribution">和铳分布</button>
+      <button class="btn" data-panel="lineage">血统</button>
+      <button class="btn" data-panel="recent">最近和铳</button>
+      <button class="btn" data-panel="tablemates">最常同桌</button>
+    </div>
+    <section id="basic-panel" class="profile-panel">
+      <div id="personal-stats" class="personal-stats"></div>
+    </section>
+    <section id="riichi-panel" class="profile-panel" hidden></section>
+    <section id="more-panel" class="profile-panel" hidden></section>
+    <section id="distribution-panel" class="profile-panel" hidden></section>
+    <section id="lineage-panel" class="profile-panel" hidden></section>
+    <section id="recent-panel" class="profile-panel" hidden></section>
+    <section id="tablemates-panel" class="profile-panel" hidden></section>
+    <div class="profile-panel profile-trend-panel">
+      <h3>积分推移</h3>
+      <div id="trend-detail-chart" class="chart"></div>
+    </div>
+    <section id="detail-games-panel" class="profile-panel associated-games-panel" hidden>
+      <div class="section-heading">
+        <div>
+          <h3>相关对局</h3>
+          <p class="muted" id="detail-games-summary"></p>
+        </div>
+      </div>
+      <div id="detail-games-list"></div>
+    </section>
+  </section>
 </div>
 <script type="module">
 import { api, esc, loadLeagueBrand } from "/static/js/api.js";
+import { finalHand, renderFinalHand, sortTiles } from "/static/js/tiles.js";
 
 let by = "player";
+let view = "detail";
 let options = [];
+let teams = [];
+let playerStats = new Map();
+let teamStats = new Map();
+let playerStandings = [];
+let teamStandings = [];
 loadLeagueBrand();
 
-function pct(x) { return (x * 100).toFixed(1) + "%"; }
+function pct(x) {
+  const value = Number(x);
+  return `${Number.isFinite(value) ? (value * 100).toFixed(1) : "0.0"}%`;
+}
+
+function optionalPct(x) {
+  return x == null ? "暂无数据" : pct(x);
+}
+
+function optionalNumber(x, digits = 0) {
+  if (x == null || !Number.isFinite(Number(x))) return "暂无数据";
+  return Number(x).toLocaleString("zh-CN", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
+}
 
 async function loadOptions() {
   const data = await api(`/api/stats?by=${by}`);
@@ -42,7 +158,268 @@ async function loadOptions() {
   const sel = document.getElementById("target");
   sel.innerHTML = options.map((r, i) =>
     `<option value="${i}">${esc(r.nickname || r.name)}（${r.games}场）</option>`).join("");
-  render(0);
+  if (by === "team") {
+    renderTeamBoard();
+    if (view === "team") await loadAssociatedGames("team", options[0]);
+  }
+  if (view === "detail" && options.length) render(0);
+  if (view === "detail" && !options.length) {
+    document.getElementById("personal-stats").innerHTML = "";
+    document.getElementById("detail-name").textContent = "个人数据";
+    document.getElementById("detail-team").textContent = "";
+    await loadAssociatedGames("detail", null);
+  }
+}
+
+function tableData(stats, standing, identity = {}) {
+  return {
+    ...identity,
+    ...(stats || {}),
+    ...standing,
+    games: standing?.games ?? stats?.games ?? 0,
+    rank_counts: standing?.rank_counts ?? stats?.rank_counts ?? [0, 0, 0, 0],
+    avg_rank: standing?.avg_rank ?? stats?.avg_rank ?? 0,
+    points: standing?.points ?? 0,
+    raw_points: standing?.raw_points ?? stats?.raw_points_sum ?? 0,
+    highest_score: stats?.highest_score ?? 0,
+  };
+}
+
+function metricValues(row) {
+  const counts = row.rank_counts || [0, 0, 0, 0];
+  const games = row.games || 0;
+  return {
+    points: row.points || 0,
+    raw_points: row.raw_points || 0,
+    games,
+    avg_rank: row.avg_rank || 0,
+    rank_1: counts[0],
+    rank_2: counts[1],
+    rank_3: counts[2],
+    rank_4: counts[3],
+    top_rate: games ? counts[0] / games : 0,
+    top_two_rate: games ? (counts[0] + counts[1]) / games : 0,
+    dealin_rate: row.dealin_rate || 0,
+    highest_score: row.highest_score || 0,
+  };
+}
+
+const metricSpecs = [
+  ["points", true], ["raw_points", true], ["games", true], ["avg_rank", false],
+  ["rank_1", true], ["rank_2", true], ["rank_3", true], ["rank_4", true],
+  ["top_rate", true], ["top_two_rate", true], ["dealin_rate", false],
+  ["highest_score", true],
+];
+
+function decorateRanks(rows) {
+  for (const row of rows) row.metricRanks = {};
+  for (const [key, descending] of metricSpecs) {
+    const ranked = rows.filter((row) => row.games > 0).sort((a, b) => {
+      const av = metricValues(a)[key];
+      const bv = metricValues(b)[key];
+      return descending ? bv - av : av - bv;
+    });
+    let previous;
+    let previousRank = 0;
+    ranked.forEach((row, index) => {
+      const value = metricValues(row)[key];
+      const rank = value === previous ? previousRank : index + 1;
+      row.metricRanks[key] = rank;
+      previous = value;
+      previousRank = rank;
+    });
+  }
+  return rows;
+}
+
+const unrankedMetricKeys = new Set([
+  "points", "avg_rank", "rank_1", "rank_2", "rank_3", "rank_4",
+]);
+
+function metricNumber(row, key, format) {
+  if (!row.games) return "—";
+  const value = format(metricValues(row)[key]);
+  if (unrankedMetricKeys.has(key)) return `<span class="metric-value">${value}</span>`;
+  const rank = row.metricRanks?.[key];
+  return `<span class="metric-value">${value}</span><span class="metric-rank">#${rank}</span>`;
+}
+
+function leaderboardRow(row, place, teamRow = false) {
+  const counts = row.rank_counts || [0, 0, 0, 0];
+  const placeCell = place ? `<span class="leaderboard-rank rank-${Math.min(place, 4)}">${place}</span>` : "—";
+  const team = esc(row.team_name || row.name || "未分组");
+  const label = teamRow ? row.name : (row.nickname || row.name || "未命名");
+  const action = row.player_id != null
+    ? `<button class="leaderboard-link" data-kind="player" data-id="${row.player_id}">${esc(label)}</button>`
+    : row.team_id != null
+      ? `<button class="leaderboard-link" data-kind="team" data-id="${row.team_id}">${esc(label)}</button>`
+      : esc(label);
+  return `<tr class="${teamRow ? "team-summary-row" : ""} ${row.memberRow ? "member-row" : ""}">
+    <td>${placeCell}</td>
+    <td class="team-cell" style="--team-color:${row.team_color || row.color || "#8b90a3"}">${team}</td>
+    <td class="name-cell">${action}</td>
+    <td class="number">${metricNumber(row, "points", (value) => Math.round(value).toLocaleString("zh-CN"))}</td>
+    <td class="number">${metricNumber(row, "raw_points", rawPoints)}</td>
+    <td class="number">${metricNumber(row, "games", (value) => value)}</td>
+    <td class="number">${metricNumber(row, "avg_rank", (value) => Number(value).toFixed(2))}</td>
+    <td class="number">${metricNumber(row, "rank_1", (value) => value)}</td>
+    <td class="number">${metricNumber(row, "rank_2", (value) => value)}</td>
+    <td class="number">${metricNumber(row, "rank_3", (value) => value)}</td>
+    <td class="number">${metricNumber(row, "rank_4", (value) => value)}</td>
+    <td class="number">${metricNumber(row, "top_rate", pct)}</td>
+    <td class="number">${metricNumber(row, "top_two_rate", pct)}</td>
+    <td class="number">${metricNumber(row, "dealin_rate", pct)}</td>
+    <td class="number">${metricNumber(row, "highest_score", (value) => Math.round(value).toLocaleString("zh-CN"))}</td>
+  </tr>`;
+}
+
+function buildPlayerRows() {
+  const teamById = new Map(teams.map((team) => [team.id, team]));
+  const roster = teams.flatMap((team) => team.players.map((player) => ({
+    ...player, team_id: team.id, team_name: team.name, team_color: team.color,
+  })));
+  const seen = new Set(roster.map((player) => player.id));
+  for (const row of playerStandings) {
+    if (row.player_id != null && !seen.has(row.player_id)) {
+      const team = teamById.get(row.team_id);
+      roster.push({
+        id: row.player_id, nickname: row.nickname, team_id: row.team_id,
+        team_name: row.team_name || "未分组", team_color: team?.color,
+      });
+      seen.add(row.player_id);
+    }
+  }
+  const standingById = new Map(playerStandings.map((row, index) =>
+    [row.player_id, { row, place: index + 1 }]));
+  const rows = roster.map((player) => {
+    const standing = standingById.get(player.id);
+    return {
+      ...tableData(playerStats.get(player.id), standing?.row, {
+        player_id: player.id, nickname: player.nickname,
+        team_name: player.team_name || "未分组", team_color: player.team_color,
+      }),
+      place: standing?.place || 0,
+    };
+  });
+  for (const row of playerStandings.filter((entry) => entry.player_id == null)) {
+    rows.push({ ...tableData(null, row, row), place: rows.length + 1 });
+  }
+  rows.sort((a, b) =>
+    (a.place || Number.MAX_SAFE_INTEGER) - (b.place || Number.MAX_SAFE_INTEGER) ||
+    (b.points - a.points) || (b.raw_points - a.raw_points) ||
+    (a.nickname || "").localeCompare(b.nickname || "", "zh-CN"));
+  return decorateRanks(rows);
+}
+
+function renderComparison() {
+  const rows = buildPlayerRows();
+  const body = document.getElementById("comparison-body");
+  body.innerHTML = rows.map((row, index) =>
+    leaderboardRow(row, row.place || index + 1)).join("") ||
+    `<tr><td colspan="15" class="muted">暂无数据</td></tr>`;
+  bindLeaderboardLinks(body);
+}
+
+function renderTeamBoard() {
+  const body = document.getElementById("team-body");
+  const rows = [];
+  const playerRows = buildPlayerRows();
+  const playerById = new Map(playerRows.map((row) => [row.player_id, row]));
+  const standingById = new Map(teamStandings.map((row, index) =>
+    [row.team_id, { row, place: index + 1 }]));
+  const teamRows = [];
+  const memberRows = [];
+  const teamsWithRows = [...teams].sort((a, b) => {
+    const rankA = standingById.get(a.id)?.place || Number.MAX_SAFE_INTEGER;
+    const rankB = standingById.get(b.id)?.place || Number.MAX_SAFE_INTEGER;
+    return rankA - rankB || a.name.localeCompare(b.name, "zh-CN");
+  });
+  teamsWithRows.forEach((team, index) => {
+    const standing = standingById.get(team.id);
+    teamRows.push({
+      ...tableData(teamStats.get(team.id), standing?.row, {
+        team_id: team.id, name: team.name, team_name: team.name, color: team.color,
+      }),
+      place: standing?.place || index + 1,
+    });
+    team.players.forEach((player) => {
+      const member = playerById.get(player.id) || tableData(null, null, {
+        player_id: player.id, nickname: player.nickname,
+        team_id: team.id, team_name: team.name, team_color: team.color,
+      });
+      member.memberRow = true;
+      member.team_name = team.name;
+      member.team_color = team.color;
+      member.memberRow = true;
+      memberRows.push(member);
+    });
+  });
+  const ungrouped = playerRows.filter((row) => row.team_id == null);
+  decorateRanks(teamRows);
+  decorateRanks(memberRows);
+  teamsWithRows.forEach((team, index) => {
+    const teamRow = teamRows[index];
+    rows.push(leaderboardRow(teamRow, teamRow.place, true));
+    rows.push(...memberRows.filter((row) => row.team_id === team.id)
+      .map((row) => leaderboardRow(row, row.place)));
+  });
+  if (ungrouped.length) {
+    rows.push(`<tr class="team-summary-row"><td colspan="15">未分组</td></tr>`);
+    rows.push(...ungrouped.map((row) => leaderboardRow(row, row.place)));
+  }
+  body.innerHTML = rows.join("") || `<tr><td colspan="15" class="muted">暂无数据</td></tr>`;
+  bindLeaderboardLinks(body);
+}
+
+function bindLeaderboardLinks(body) {
+  body.querySelectorAll(".leaderboard-link").forEach((button) => {
+    button.addEventListener("click", () => selectDetail(button.dataset.kind, button.dataset.id));
+  });
+}
+
+async function setView(nextView) {
+  view = nextView;
+  by = view === "team" ? "team" : "player";
+  document.querySelectorAll("#view-tabs .btn").forEach((button) =>
+    button.classList.toggle("on", button.dataset.view === view));
+  document.getElementById("detail-view").hidden = view !== "detail";
+  document.getElementById("compare-view").hidden = view !== "compare";
+  document.getElementById("team-view").hidden = view !== "team";
+  document.getElementById("detail-games-panel").hidden = view !== "detail";
+  document.getElementById("team-games-panel").hidden = view !== "team";
+  document.getElementById("group-tabs").hidden = view === "compare";
+  if (view === "compare") {
+    renderComparison();
+    return;
+  }
+  await loadOptions();
+}
+
+async function selectDetail(kind, id) {
+  await setView(kind === "team" ? "team" : "detail");
+  const index = options.findIndex((row) =>
+    String(by === "team" ? row.team_id : row.player_id) === String(id));
+  if (index >= 0) {
+    document.getElementById("target").value = String(index);
+    render(index);
+  }
+}
+
+async function loadLeaderboardData() {
+  const [teamList, playersData, teamData, playerRankData, teamRankData] = await Promise.all([
+    api("/api/teams"),
+    api("/api/stats?by=player"),
+    api("/api/stats?by=team"),
+    api("/api/standings?by=player"),
+    api("/api/standings?by=team"),
+  ]);
+  teams = teamList;
+  playerStats = new Map(playersData.rows.filter((row) => row.player_id != null)
+    .map((row) => [row.player_id, row]));
+  teamStats = new Map(teamData.rows.filter((row) => row.team_id != null)
+    .map((row) => [row.team_id, row]));
+  playerStandings = playerRankData.rows;
+  teamStandings = teamRankData.rows;
 }
 
 function trendParam(row) {
@@ -50,46 +427,369 @@ function trendParam(row) {
   return `by=${by}&id=${val}`;
 }
 
+function int(value) {
+  return Math.round(value || 0).toLocaleString("zh-CN");
+}
+
+function pt(value) {
+  return (Number(value) || 0).toFixed(1);
+}
+
+function rawPoints(value) {
+  const number = Number(value) || 0;
+  return `${number > 0 ? "+" : ""}${number.toFixed(1)}`;
+}
+
+function metricGroup(title, items) {
+  return `<section class="metric-group"><h3>${title}</h3>${
+    items.map(([label, value]) => `
+      <div class="metric-row"><span>${label}</span><strong>${value}</strong></div>`
+    ).join("")
+  }</section>`;
+}
+
+function profileGroup(title, items) {
+  return metricGroup(title, items.map(([label, value, formatter]) => [
+    label,
+    value == null ? "暂无数据" : (formatter ? formatter(value) : value),
+  ]));
+}
+
+function renderPersonalStats(detail) {
+  const groups = [
+    metricGroup("战绩", [
+      ["记录场数", int(detail.games)],
+      ["联赛积分", int(detail.pt_sum)],
+      ["平均终局点数", int(detail.avg_final_score)],
+      ["分数期望", Number(detail.expected_pt || 0).toFixed(2)],
+      ["最高终局点数", int(detail.highest_score)],
+    ]),
+    metricGroup("和牌", [
+      ["和牌率", pct(detail.win_rate)],
+      ["和牌次数", int(detail.win)],
+      ["默胡率", pct(detail.silent_win_rate)],
+      ["自摸率", pct(detail.tsumo_share)],
+      ["平均打点", int(detail.avg_win_score)],
+      ["立直和牌率", pct(detail.riichi_win_rate)],
+      ["副露和牌率", pct(detail.callout_win_rate)],
+    ]),
+    metricGroup("防守与行为", [
+      ["放铳率", pct(detail.dealin_rate)],
+      ["放铳次数", int(detail.dealin)],
+      ["平均铳点", int(detail.avg_dealin_score)],
+      ["流局率", pct(detail.ryukyoku_rate)],
+      ["被飞率", pct(detail.negative_rate)],
+      ["立直率", pct(detail.riichi_rate)],
+      ["副露率", pct(detail.callout_rate)],
+      ["中里率", pct(detail.ura_hit_rate)],
+    ]),
+  ];
+  document.getElementById("personal-stats").innerHTML = groups.join("");
+}
+
+function renderProfile(profile, detail) {
+  const basic = { ...detail, ...(profile.basic || {}) };
+  renderPersonalStats(basic);
+  const riichi = profile.riichi || {};
+  const more = profile.more || {};
+  const distribution = profile.distribution || {};
+  const lineage = profile.lineage || {};
+  document.getElementById("riichi-panel").innerHTML = [
+    profileGroup("立直", [
+      ["立直次数", riichi.count, int],
+      ["立直和牌率", riichi.win_rate, optionalPct],
+      ["立直放铳率", riichi.dealin_rate, optionalPct],
+      ["立直流局率", riichi.ryukyoku_rate, optionalPct],
+      ["先制率", riichi.first_rate, optionalPct],
+      ["追立率", riichi.chase_rate, optionalPct],
+      ["被追率", riichi.chased_rate, optionalPct],
+      ["立直巡目", riichi.avg_turn, (value) => optionalNumber(value, 2)],
+      ["立直收入", riichi.income, int],
+      ["立直支出", riichi.expense, int],
+      ["立直收支", riichi.balance, int],
+      ["一发率", riichi.ippatsu_rate, optionalPct],
+      ["振听率", riichi.furiten_rate, optionalPct],
+      ["立直多面", riichi.multi_wait_rate, optionalPct],
+      ["立直好型", riichi.good_wait_rate, optionalPct],
+      ["中里率", riichi.ura_hit_rate, optionalPct],
+    ]),
+  ].join("");
+  document.getElementById("more-panel").innerHTML = [
+    profileGroup("更多", [
+      ["最高分数", more.max_raw_points, int],
+      ["最大连庄", more.max_consecutive_dealer, int],
+      ["里宝率", more.ura_hit_rate, optionalPct],
+      ["被炸率", basic.bust_rate, optionalPct],
+      ["平均被炸点数", basic.avg_bust_score, int],
+      ["放铳时立直率", more.dealin_riichi_rate, optionalPct],
+      ["放铳时副露率", more.dealin_callout_rate, optionalPct],
+      ["副露后放铳率", more.post_callout_dealin_rate, optionalPct],
+      ["副露后和牌率", more.post_callout_win_rate, optionalPct],
+      ["副露后流局率", more.post_callout_ryukyoku_rate, optionalPct],
+      ["打点效率", more.point_efficiency, optionalNumber],
+      ["铳点损失", more.point_loss, int],
+      ["净打点效率", more.net_point_efficiency, optionalNumber],
+      ["局收支", more.round_balance, int],
+      ["总计局数", more.total_kyoku, int],
+    ]),
+  ].join("");
+  document.getElementById("distribution-panel").innerHTML = `
+    <div class="distribution-charts">
+      <section class="distribution-chart-block">
+        <h3>和牌时</h3>
+        <div id="win-distribution-chart" class="chart distribution-chart"></div>
+      </section>
+      <section class="distribution-chart-block">
+        <h3>放铳时</h3>
+        <div id="dealin-distribution-chart" class="chart distribution-chart"></div>
+      </section>
+    </div>`;
+  const distributionChart = (items) => ({
+    backgroundColor: "transparent",
+    tooltip: { trigger: "item", formatter: "{b}: {c}次 ({d}%)" },
+    legend: { bottom: 0, textStyle: { color: "#6b7280" } },
+    series: [{
+      type: "pie",
+      radius: ["34%", "68%"],
+      center: ["50%", "44%"],
+      avoidLabelOverlap: true,
+      label: { formatter: "{b}\n{c}次", color: "#172033" },
+      data: items,
+      itemStyle: { borderColor: "#fff", borderWidth: 2 },
+    }],
+  });
+  setChart("win-distribution-chart", distributionChart([
+    { name: "立直", value: distribution.win?.riichi || 0 },
+    { name: "副露", value: distribution.win?.callout || 0 },
+    { name: "默听", value: distribution.win?.silent || 0 },
+  ]));
+  setChart("dealin-distribution-chart", distributionChart([
+    { name: "立直", value: distribution.dealin?.riichi || 0 },
+    { name: "副露", value: distribution.dealin?.callout || 0 },
+    { name: "门清", value: distribution.dealin?.menzen || 0 },
+  ]));
+  document.getElementById("lineage-panel").innerHTML = profileGroup("血统", [
+    ["役满", lineage.yakuman, int],
+    ["最大累计番数", lineage.max_fan, int],
+    ["两立直", lineage.double_riichi, int],
+    ["起手向听", lineage.start_shanten, (value) => optionalNumber(value, 2)],
+    ["亲起手向听", lineage.dealer_start_shanten, (value) => optionalNumber(value, 2)],
+    ["子起手向听", lineage.nondealer_start_shanten, (value) => optionalNumber(value, 2)],
+  ]);
+  function recentRecordRows(items, kind) {
+    return (items || []).slice(0, 1).map((item, index) => `
+      <tr class="recent-summary-row">
+        <td class="recent-match-cell">${recentMatchLabel(item)}</td>
+        <td class="number">${int(item.score)}</td>
+        <td>${esc(item.fu_han || "")}</td>
+        <td>${esc((item.yaku || []).join("、"))}</td>
+      </tr>
+      <tr class="recent-hand-row">
+        <td colspan="4">
+          <div class="recent-hand-label">胡牌者手牌</div>
+          <div class="recent-hand-cell" data-kind="${kind}" data-index="${index}"></div>
+        </td>
+      </tr>`).join("");
+  }
+  const wins = recentRecordRows(profile.recent_large, "win");
+  const losses = recentRecordRows(profile.recent_losses, "loss");
+  document.getElementById("recent-panel").innerHTML = `
+    <div class="recent-records">
+      <div class="recent-record-block"><h3>大额和牌</h3>${simpleTable(["对局", "得点", "符番", "役种"],
+        wins || `<tr><td colspan="4" class="muted">暂无数据</td></tr>`)}</div>
+      <div class="recent-record-block"><h3>大额放铳</h3>${simpleTable(["对局", "铳点", "符番", "役种"], losses ||
+        `<tr><td colspan="4" class="muted">暂无数据</td></tr>`)}</div>
+    </div>`;
+  const recentPanel = document.getElementById("recent-panel");
+  recentPanel.querySelectorAll(".recent-hand-cell").forEach((cell) => {
+    const list = cell.dataset.kind === "win" ? profile.recent_large : profile.recent_losses;
+    const item = list?.[Number(cell.dataset.index)];
+    const hand = item && renderRecentHand(item);
+    if (hand) cell.appendChild(hand);
+    else cell.textContent = "暂无牌面";
+  });
+  const mates = (profile.tablemates || []).slice(0, 10).map((item) => {
+    const playerId = Number.isInteger(item.player_id) ? item.player_id : null;
+    const player = playerId === null
+      ? `<span class="tablemate-name">${esc(item.nickname || "未知选手")}</span>`
+      : `<button class="tablemate-name tablemate-player-link" type="button"
+          data-player-id="${playerId}">${esc(item.nickname || "未知选手")}</button>`;
+    return `
+      <div class="tablemate-item">
+        <div class="tablemate-heading">
+          ${player}
+          <button class="tablemate-games-btn" type="button" title="查看与该玩家的共同对局"
+            aria-label="查看与${esc(item.nickname || "未知选手")}的共同对局" disabled>
+            <span aria-hidden="true">☷</span>
+          </button>
+        </div>
+        <div class="tablemate-meta">
+          <span>共同 ${int(item.games)} 局</span>
+          <span aria-hidden="true">·</span>
+          <span>胜率 ${pct(item.win_rate)}</span>
+        </div>
+        <div class="tablemate-scoreline">
+          <span>我场均积分 ${pt(item.self_avg_pt)}</span>
+          <span>对方场均积分 ${pt(item.opponent_avg_pt)}</span>
+        </div>
+      </div>`;
+  }).join("");
+  document.getElementById("tablemates-panel").innerHTML = `
+    <div class="tablemates-heading">
+      <h3>最常同桌</h3>
+      <span class="muted">最近对局统计</span>
+    </div>
+    ${mates.length
+      ? `<div class="tablemates-grid">${mates}</div>`
+      : `<p class="muted tablemates-empty">暂无数据</p>`}`;
+  document.querySelectorAll(".tablemate-player-link").forEach((button) =>
+    button.addEventListener("click", () => selectDetail("player", button.dataset.playerId)));
+}
+
+function recentMatchLabel(item) {
+  const date = item.match_date || "日期未知";
+  const half = item.hanchan ? `第${item.hanchan}半庄` : "半庄未知";
+  const opponents = (item.opponents || []).join("、") || "对战人未知";
+  return `<div>${esc(date)} · ${esc(half)}</div><div class="muted">对战：${esc(opponents)}</div>`;
+}
+
+function renderRecentHand(item) {
+  if (!Array.isArray(item?.hand_data) || item.winner_seat == null) return null;
+  const winner = finalHand(item.hand_data, Number(item.winner_seat));
+  if (item.tsumo) {
+    winner.winningTile = winner.lastDrawTile;
+  } else if (item.loser_seat != null) {
+    const loser = finalHand(item.hand_data, Number(item.loser_seat));
+    const winningTile = loser.lastDiscardTile;
+    if (winningTile != null) {
+      winner.hand.push(winningTile);
+      winner.winningTile = winningTile;
+      sortTiles(winner.hand);
+    }
+  }
+  return renderFinalHand(winner);
+}
+
+function simpleTable(headers, rows) {
+  return `<div class="comparison-scroll profile-table-scroll"><table class="comparison-table profile-data-table">
+    <thead><tr>${headers.map((header) => `<th>${header}</th>`).join("")}</tr></thead>
+    <tbody>${rows}</tbody></table></div>`;
+}
+
+function formatGameTime(value) {
+  if (!value) return "时间未知";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? value.replace("T", " ")
+    : date.toLocaleString("zh-CN", {
+        year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit",
+      });
+}
+
+function renderAssociatedGames(data, mode, targetId) {
+  const list = document.getElementById(`${mode}-games-list`);
+  const summary = document.getElementById(`${mode}-games-summary`);
+  summary.textContent = `共 ${int(data.total)} 场，按时间由新到旧排列`;
+  list.innerHTML = data.items.map((game) => `
+    <article class="associated-game">
+      <div class="associated-game-head">
+        <strong>${esc(formatGameTime(game.start_time))}</strong>
+        <span class="muted">${esc(game.rule || "规则未知")}</span>
+      </div>
+      <div class="associated-game-players">
+        ${game.players.map((player) => {
+          const selected = mode === "detail"
+            ? String(player.player_id) === String(targetId)
+            : String(player.team_id) === String(targetId);
+          return `<div class="associated-game-player${selected ? " selected" : ""}">
+            <div>
+              <span class="rank-badge rank-${player.rank}">${player.rank || "—"}</span>
+              <span class="team-dot" style="background:${player.team_color || "#555"}"></span>
+              <span>${esc(player.nickname)}</span>
+            </div>
+            <div class="muted">${int(player.final_score)} 点 · pt ${player.pt > 0 ? "+" : ""}${player.pt}</div>
+          </div>`;
+        }).join("")}
+      </div>
+    </article>`).join("") || `<p class="muted">暂无关联对局</p>`;
+}
+
+async function loadAssociatedGames(mode, row) {
+  const panel = document.getElementById(`${mode}-games-panel`);
+  if (!row) {
+    panel.hidden = true;
+    return;
+  }
+  const targetId = mode === "detail" ? row.player_id : row.team_id;
+  const byValue = mode === "detail" ? "player" : "team";
+  const data = await api(`/api/stats/games?by=${byValue}&id=${targetId}`);
+  renderAssociatedGames(data, mode, targetId);
+  panel.hidden = false;
+}
+
+function setChart(id, option) {
+  const dom = document.getElementById(id);
+  const current = echarts.getInstanceByDom(dom);
+  if (current) current.dispose();
+  echarts.init(dom).setOption(option);
+}
+
+function resizeChart(id) {
+  const dom = document.getElementById(id);
+  const chart = dom && echarts.getInstanceByDom(dom);
+  if (chart) chart.resize();
+}
+
 async function render(idx) {
   const row = options[idx];
   if (!row) return;
   const q = by === "team" ? `?by=team&id=${row.team_id}` : `?by=player&id=${row.player_id}`;
-  const detail = await api(`/api/stats${q}`);
-  const cards = [
-    ["场次", detail.games], ["平均顺位", detail.avg_rank.toFixed(2)],
-    ["和牌率", pct(detail.win_rate)], ["自摸占比", pct(detail.tsumo_share)],
-    ["放铳率", pct(detail.dealin_rate)], ["立直率", pct(detail.riichi_rate)],
-    ["副露率", pct(detail.callout_rate)], ["平均打点", detail.avg_win_score],
-    ["平均铳点", detail.avg_dealin_score], ["素点和", detail.raw_points_sum],
-  ];
-  document.getElementById("cards").innerHTML = cards.map(([k, v]) =>
-    `<div class="stat-card"><div class="v">${v}</div><div class="k">${k}</div></div>`).join("");
+  const [detail, profile] = await Promise.all([
+    api(`/api/stats${q}`),
+    api(`/api/stats/profile${q}`),
+  ]);
+  document.getElementById("detail-name").textContent = row.nickname || row.name || "未命名";
+  document.getElementById("detail-team").textContent =
+    row.team_name ? `所属：${row.team_name}` : "未分组";
+  renderProfile(profile, detail);
+  await loadAssociatedGames("detail", row);
 
-  echarts.init(document.getElementById("rank-chart")).setOption({
+  setChart("rank-chart", {
     backgroundColor: "transparent",
-    tooltip: {}, grid: { left: 40, right: 10, top: 20, bottom: 30 },
-    xAxis: { type: "category", data: ["一位", "二位", "三位", "四位"],
-             axisLabel: { color: "#6b7280" } },
-    yAxis: { type: "value", axisLabel: { color: "#6b7280" },
-             splitLine: { lineStyle: { color: "#e5e7eb" } } },
-    series: [{ type: "bar", data: detail.rank_counts,
-               itemStyle: { color: "#5b8cff" } }],
-  });
-
-  const yaku = await api(`/api/stats/yaku?by=${by}&id=${by === "team" ? row.team_id : row.player_id}`);
-  const names = Object.keys(yaku).slice(0, 15).reverse();
-  echarts.init(document.getElementById("yaku-chart")).setOption({
-    backgroundColor: "transparent",
-    tooltip: {}, grid: { left: 130, right: 20, top: 10, bottom: 30 },
-    xAxis: { type: "value", axisLabel: { color: "#6b7280" } },
-    yAxis: { type: "category", data: names, axisLabel: { color: "#1f2430" } },
-    series: [{ type: "bar", data: names.map((n) => yaku[n]),
-               itemStyle: { color: "#e5a544" } }],
+    tooltip: { trigger: "item", formatter: "{b}: {c}场 ({d}%)" },
+    legend: { bottom: 0, textStyle: { color: "#6b7280" } },
+    series: [{
+      type: "pie",
+      radius: ["34%", "70%"],
+      center: ["50%", "45%"],
+      avoidLabelOverlap: true,
+      label: { formatter: "{b}\n{c}场", color: "#172033" },
+      data: detail.rank_counts.map((value, index) => ({
+        name: ["一位", "二位", "三位", "四位"][index],
+        value,
+      })),
+      itemStyle: { borderColor: "#fff", borderWidth: 2 },
+    }],
   });
 
   const trend = await api(`/api/stats/trend?${trendParam(row)}`);
   const t = trend.rows[0];
-  echarts.init(document.getElementById("trend-chart")).setOption({
+  setChart("trend-chart", {
+    backgroundColor: "transparent",
+    tooltip: { trigger: "axis" },
+    grid: { left: 38, right: 20, top: 18, bottom: 34 },
+    xAxis: { type: "category", data: (t ? t.games : []).map((g, i) => `第${i + 1}场`),
+             axisLabel: { color: "#6b7280" } },
+    yAxis: { type: "value", min: 1, max: 4, interval: 1, inverse: true,
+             axisLabel: { color: "#6b7280", formatter: (value) => `${value}位` },
+             splitLine: { lineStyle: { color: "#e5e7eb" } } },
+    series: [{ name: "顺位", type: "line", smooth: false,
+               data: t ? t.ranks : [], symbolSize: 8,
+               lineStyle: { color: "#5b8cff", width: 2 },
+               itemStyle: { color: "#5b8cff" } }],
+  });
+  setChart("trend-detail-chart", {
     backgroundColor: "transparent",
     tooltip: { trigger: "axis" },
     grid: { left: 50, right: 50, top: 30, bottom: 40 },
@@ -102,14 +802,26 @@ async function render(idx) {
   });
 }
 
-document.querySelectorAll(".tabs .btn").forEach((btn) => btn.addEventListener("click", () => {
-  document.querySelectorAll(".tabs .btn").forEach((b) => b.classList.remove("on"));
-  btn.classList.add("on");
-  by = btn.dataset.by;
-  loadOptions();
+document.querySelectorAll("#view-tabs .btn").forEach((btn) => btn.addEventListener("click", () => {
+  setView(btn.dataset.view).catch((error) => alert(error.message));
 }));
-document.getElementById("target").addEventListener("change", (e) => render(+e.target.value));
-loadOptions().catch((e) => alert(e.message));
+document.querySelectorAll("#detail-tabs .btn").forEach((btn) => btn.addEventListener("click", () => {
+  const panel = btn.dataset.panel;
+  document.querySelectorAll("#detail-tabs .btn").forEach((item) =>
+    item.classList.toggle("on", item === btn));
+  document.querySelectorAll("#detail-view .profile-panel").forEach((item) =>
+    item.hidden = item.id !== `${panel}-panel`);
+  requestAnimationFrame(() => {
+    resizeChart("win-distribution-chart");
+    resizeChart("dealin-distribution-chart");
+  });
+}));
+document.getElementById("target").addEventListener("change", (event) => {
+  const index = Number(event.target.value);
+  if (view === "team") loadAssociatedGames("team", options[index]);
+  else render(index);
+});
+loadLeaderboardData().then(() => setView("detail")).catch((error) => alert(error.message));
 </script>
 </body>
 </html>

@@ -70,8 +70,20 @@ def test_public_endpoints(client, db):
     r = client.get(f"/api/stats?by=player&id={pid}")
     assert r.json()["win"] == 2
 
+    r = client.get(f"/api/stats/games?by=player&id={pid}")
+    related = r.json()
+    assert related["total"] == 1
+    assert len(related["items"][0]["players"]) == 4
+    assert any(player["player_id"] == pid for player in related["items"][0]["players"])
+
+    r = client.get("/api/stats/games?by=team&id=1")
+    related = r.json()
+    assert related["total"] == 1
+    assert all(player["team_id"] == 1 for player in related["items"][0]["players"]
+               if player["nickname"] == SAMPLE["name"][3])
+
     r = client.get("/api/stats/yaku?by=player")
-    assert "役牌 白(1飜)" in r.json()
+    assert "役牌 白" in r.json()
 
     r = client.get("/api/stats/trend?by=player")
     trend = r.json()["rows"]

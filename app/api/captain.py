@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 import app.config as config
 from app.db import get_db
-from app.models import Captain, Lineup, Player, Team
+from app.models import Captain, League, Lineup, Player, Team
 from app.services.schedule import (fallback_matchday, has_schedule, scheduled_day,
                                     scheduled_matchdays, schedule_view)
 from app.services.uploads import read_image_upload
@@ -184,11 +184,15 @@ def my_players(captain: tuple = Depends(current_captain), db: Session = Depends(
 
 
 @router.get("/verify-player")
-def verify_player(account_id: int, captain: tuple = Depends(current_captain)):
+def verify_player(account_id: int, captain: tuple = Depends(current_captain),
+                  db: Session = Depends(get_db)):
     """通过服务器配置的赛事管理账号验证雀魂账号 ID，不接触队长的雀魂密码。"""
     if account_id <= 0:
         raise HTTPException(422, "雀魂ID必须是正整数")
-    if not (config.DHS_USERNAME and config.DHS_PASSWORD):
+    league = db.query(League).first()
+    username = (getattr(league, "sync_username", "") if league else "") or config.DHS_USERNAME
+    password = (getattr(league, "sync_password", "") if league else "") or config.DHS_PASSWORD
+    if not (username and password):
         raise HTTPException(503, "服务器未配置雀魂验证服务（DHS_USERNAME/DHS_PASSWORD）")
 
     from app.services.majsoul.clients import DHSClient
@@ -200,8 +204,8 @@ def verify_player(account_id: int, captain: tuple = Depends(current_captain)):
             from app.services.majsoul.clients import majsoul_password_hash
             await client.channel.call(
                 "loginContestManager",
-                account=config.DHS_USERNAME,
-                password=majsoul_password_hash(config.DHS_PASSWORD),
+                account=username,
+                password=majsoul_password_hash(password),
                 type=0,
             )
             return await client.search_by_account_id(account_id)

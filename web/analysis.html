@@ -154,7 +154,22 @@ function optionalNumber(x, digits = 0) {
 
 async function loadOptions() {
   const data = await api(`/api/stats?by=${by}`);
-  options = data.rows;
+  if (by === "team") {
+    const statsByTeamId = new Map(
+      data.rows.filter((row) => row.team_id != null)
+        .map((row) => [row.team_id, row])
+    );
+    options = teams.map((team) => ({
+      ...(statsByTeamId.get(team.id) || {}),
+      team_id: team.id,
+      name: team.name,
+      team_name: team.name,
+      team_color: team.color,
+      games: statsByTeamId.get(team.id)?.games || 0,
+    }));
+  } else {
+    options = data.rows;
+  }
   const sel = document.getElementById("target");
   sel.innerHTML = options.map((r, i) =>
     `<option value="${i}">${esc(r.nickname || r.name)}（${r.games}场）</option>`).join("");
@@ -296,6 +311,7 @@ function buildPlayerRows() {
     return {
       ...tableData(playerStats.get(player.id), standing?.row, {
         player_id: player.id, nickname: player.nickname,
+        team_id: player.team_id,
         team_name: player.team_name || "未分组", team_color: player.team_color,
       }),
       place: standing?.place || 0,

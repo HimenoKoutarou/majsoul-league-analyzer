@@ -8,7 +8,7 @@ import app.config as config
 from app.api.captain import MATCH_WEEKDAYS, is_locked, next_matchdays
 from app.db import get_db
 from app.main import create_app
-from app.models import Captain, Lineup, Player, ScheduleDay, Team
+from app.models import Captain, League, Lineup, Player, ScheduleDay, Team
 
 
 @pytest.fixture
@@ -356,6 +356,43 @@ def test_captain_can_verify_majsoul_account(client, db, monkeypatch):
 
     r = client.get("/api/captain/verify-player?account_id=0")
     assert r.status_code == 422
+
+
+def test_captain_verify_uses_persistent_sync_credentials(client, db, monkeypatch):
+    _seed(client, db)
+    _login(client)
+    db.add(League(name="测试联赛"))
+    db.commit()
+    league = db.query(League).first()
+    league.sync_username = "saved-dhs-user"
+    league.sync_password = "saved-dhs-pass"
+    db.commit()
+    monkeypatch.setattr(config, "DHS_USERNAME", "")
+    monkeypatch.setattr(config, "DHS_PASSWORD", "")
+
+    class FakeChannel:
+        async def connect(self):
+            pass
+
+        async def call(self, method, **fields):
+            assert method == "loginContestManager"
+            assert fields["account"] == "saved-dhs-user"
+            return None
+
+    class FakeDHS:
+        def __init__(self):
+            self.channel = FakeChannel()
+
+        async def search_by_account_id(self, account_id):
+            return [{"account_id": account_id, "nickname": "持久化验证雀士"}]
+
+        async def close(self):
+            pass
+
+    monkeypatch.setattr("app.services.majsoul.clients.DHSClient", FakeDHS)
+    response = client.get("/api/captain/verify-player?account_id=123456")
+    assert response.status_code == 200
+    assert response.json()["nickname"] == "持久化验证雀士"
 
 
 def test_captain_verify_reports_unconfigured_service(client, db, monkeypatch):

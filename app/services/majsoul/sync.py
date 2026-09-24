@@ -15,18 +15,23 @@ _state_lock = threading.Lock()
 _sync_state: dict = {"running": False, "phase": "", "progress": "", "error": None}
 
 
-def _apply_contest_rule(db: Session, contest_rule) -> None:
+def _apply_contest_rule(db: Session, contest_rule, raw_rule=None) -> None:
     if contest_rule is None:
         return
     if isinstance(contest_rule, dict) and "rank_points" in contest_rule:
         rule = contest_rule
     else:
         rule = contest_rule_to_score_rule(contest_rule)
+        if raw_rule is None:
+            raw_rule = contest_rule
     league = db.query(League).first()
     if not league:
         league = League(name="麻将联赛")
         db.add(league)
     league.score_rule = rule
+    if isinstance(raw_rule, dict):
+        from copy import deepcopy
+        league.contest_rule_raw = deepcopy(raw_rule)
 
 
 def _record_on_or_after(record, start_date: date) -> bool:
@@ -80,7 +85,11 @@ def run_dhs_sync(db: Session, contest_id: int, username: str, password: str,
             dhs = DHSClient()
             await dhs.connect_login(contest_id, username, password)
         try:
-            _apply_contest_rule(db, getattr(dhs, "contest_rule", None))
+            _apply_contest_rule(
+                db,
+                getattr(dhs, "contest_rule", None),
+                getattr(dhs, "contest_rule_raw", None),
+            )
             league = db.query(League).first()
             if league:
                 league.contest_id = contest_id
@@ -210,18 +219,18 @@ def init_from_contest(db: Session, contest_id: int, username: str, password: str
                 name = item.get("content") if item else None
             if not isinstance(name, str) or not name.strip():
                 name = f"赛事场 {contest_id}"
-            return name, players, score_rule
+            return name, players, score_rule, getattr(client, "contest_rule_raw", None)
         finally:
             await client.close()
 
-    name, players, score_rule = asyncio.run(_main())
+    name, players, score_rule, raw_rule = asyncio.run(_main())
     league = db.query(League).first()
     if not league:
         league = League(name=name)
         db.add(league)
     league.name = name
     league.contest_id = contest_id
-    _apply_contest_rule(db, score_rule)
+    _apply_contest_rule(db, score_rule, raw_rule)
     for info in players:
         player = db.query(Player).filter(Player.account_id == info["account_id"]).first()
         if not player:

@@ -86,8 +86,8 @@ export function parseMeldSymbol(sym) {
 }
 
 function removeTile(hand, code) {
-  const target = code === 51 || code === 52 || code === 53 ? code - 36 : code;
-  const index = hand.findIndex((value) => (value === 51 || value === 52 || value === 53 ? value - 36 : value) === target);
+  const target = tileDeaka(code);
+  const index = hand.findIndex((value) => tileDeaka(value) === target);
   if (index >= 0) hand.splice(index, 1);
 }
 
@@ -102,13 +102,20 @@ export function tileSortKey(code) {
   return code;
 }
 
+function tileDeaka(code) {
+  if (code === 51 || code === 52 || code === 53) {
+    return 15 + (code - 51) * 10;
+  }
+  return code;
+}
+
 export function sortTiles(codes) {
   return codes.sort((a, b) => tileSortKey(a) - tileSortKey(b));
 }
 
 /** 将宝牌指示牌转换为实际宝牌；红5按普通5参与顺序计算。 */
 export function doraTile(code) {
-  const base = code === 51 || code === 52 || code === 53 ? code - 36 : code;
+  const base = tileDeaka(code);
   const suit = Math.floor(base / 10);
   const num = base % 10;
   if (suit >= 1 && suit <= 3) {

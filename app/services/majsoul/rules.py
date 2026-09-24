@@ -30,18 +30,22 @@ def _rank_points(payload: object) -> list[int | float] | None:
                    for item in points):
                 return points
 
+        first = _number(mapping, "shunweima_1", "shunweima1", "uma_1", "uma1")
         second = _number(mapping, "shunweima_2", "shunweima2", "uma_2", "uma2")
         third = _number(mapping, "shunweima_3", "shunweima3", "uma_3", "uma3")
         fourth = _number(mapping, "shunweima_4", "shunweima4", "uma_4", "uma4")
         if second is not None and third is not None and fourth is not None:
-            return [-second - third - fourth, second, third, fourth]
+            # 雀魂赛事场只返回二到四位的马点；一位不是用总和为 0
+            # 推导，而是赛事场规则中的固定 +50。
+            return [50 if first is None else first, second, third, fourth]
     return None
 
 
 def contest_rule_to_score_rule(payload: object) -> dict:
     """将赛事场返回的 game_rule_setting 转成站内统一积分规则。
 
-    赛事场不直接传一位顺位分，只有二到四位的顺位马。
+    赛事场通常不直接传一位顺位分，只有二到四位的顺位马。
+    当前赛事场格式的一位马点为 +50，不能按四项总和为 0 反推。
     """
     points = _rank_points(payload)
     if points is None:

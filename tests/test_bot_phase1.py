@@ -7,6 +7,9 @@ import app.config as config
 from app.db import get_db
 from app.main import create_app
 from app.models import EventOutbox, League
+from app.services.events import enqueue_game_created
+from bot.application import event_matches_watch_accounts
+from bot.config import _parse_account_ids
 from bot.commands import CommandService
 from bot.renderers import (render_daily_digest, render_game_created,
                             render_game_detail, render_recent_profile,
@@ -43,6 +46,32 @@ def test_bot_events_api_requires_separate_token(client, db, monkeypatch):
     assert empty.status_code == 200
     assert empty.json()["items"] == []
     assert empty.json()["next_id"] == 1
+
+
+def test_game_created_event_contains_account_ids(db):
+    from app.models import Game, GamePlayer, Player
+
+    player = Player(nickname="甲", account_id=12345678)
+    db.add(player)
+    db.flush()
+    db.add(Game(uuid="game-account-id"))
+    db.add(GamePlayer(game_uuid="game-account-id", seat=0, player_id=player.id,
+                      nickname="甲", rank=1, final_score=25000, pt=25))
+    event = enqueue_game_created(db, "game-account-id")
+
+    assert event.payload["players"][0]["account_id"] == 12345678
+
+
+def test_bot_watch_account_filter():
+    event = {"payload": {"players": [{"account_id": 12345678}]}}
+    assert event_matches_watch_accounts(event, set()) is True
+    assert event_matches_watch_accounts(event, {12345678}) is True
+    assert event_matches_watch_accounts(event, {87654321}) is False
+    assert event_matches_watch_accounts(
+        {"payload": {"players": [{"account_id": None}, {"account_id": "bad"}]}},
+        {12345678},
+    ) is False
+    assert _parse_account_ids("12345678, 0, bad, 12345678, -2") == frozenset({12345678})
 
 
 def test_bot_state_and_rendering(tmp_path):

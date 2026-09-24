@@ -22,6 +22,7 @@ router = APIRouter(prefix="/captain")
 COOKIE = "cpt_session"
 CUTOFF = dtime(18, 0)          # 比赛日 18:00 截止
 MATCH_WEEKDAYS = (3, 5, 7)     # 周三 / 周五 / 周日
+GLOBAL_VERIFY_TIMEOUT = 8      # 大厅全局查询不可阻塞队长页面
 UPLOAD_DIR = Path(__file__).resolve().parents[2] / "web" / "uploads"
 
 
@@ -184,41 +185,60 @@ def my_players(captain: tuple = Depends(current_captain), db: Session = Depends(
 
 
 @router.get("/verify-player")
-def verify_player(account_id: int, captain: tuple = Depends(current_captain),
+def verify_player(account_id: int, nickname: str | None = None,
+                  captain: tuple = Depends(current_captain),
                   db: Session = Depends(get_db)):
-    """通过服务器配置的赛事管理账号验证雀魂账号 ID，不接触队长的雀魂密码。"""
+    """通过服务器配置的大厅账号验证雀魂账号 ID，不接触队长的雀魂密码。"""
     if account_id <= 0:
         raise HTTPException(422, "雀魂ID必须是正整数")
     league = db.query(League).first()
-    username = (getattr(league, "sync_username", "") if league else "") or config.DHS_USERNAME
-    password = (getattr(league, "sync_password", "") if league else "") or config.DHS_PASSWORD
-    if not (username and password):
-        raise HTTPException(503, "服务器未配置雀魂验证服务（DHS_USERNAME/DHS_PASSWORD）")
-
-    from app.services.majsoul.clients import DHSClient
+    lobby_username = (
+        (getattr(league, "lobby_username", "") if league else "")
+        or config.MS_USERNAME
+    )
+    lobby_password = (
+        (getattr(league, "lobby_password", "") if league else "")
+        or config.MS_PASSWORD
+    )
+    lobby_access_token = (
+        (getattr(league, "lobby_access_token", "") if league else "")
+        or config.MS_ACCESS_TOKEN
+    )
+    if not lobby_access_token and not (lobby_username and lobby_password):
+        raise HTTPException(503, "服务器未配置雀魂大厅验证服务（大厅账号或 access token）")
 
     async def _search():
-        client = DHSClient()
+        from app.services.majsoul.clients import LobbyClient
+
+        lobby_client = LobbyClient()
         try:
-            await client.channel.connect()
-            from app.services.majsoul.clients import majsoul_password_hash
-            await client.channel.call(
-                "loginContestManager",
-                account=username,
-                password=majsoul_password_hash(password),
-                type=0,
+            if lobby_access_token:
+                await asyncio.wait_for(
+                    lobby_client.connect_login(access_token=lobby_access_token),
+                    timeout=GLOBAL_VERIFY_TIMEOUT,
+                )
+            else:
+                await asyncio.wait_for(
+                    lobby_client.connect_login(lobby_username, lobby_password),
+                    timeout=GLOBAL_VERIFY_TIMEOUT,
+                )
+            return await asyncio.wait_for(
+                lobby_client.search_by_account_id(account_id),
+                timeout=GLOBAL_VERIFY_TIMEOUT,
             )
-            return await client.search_by_account_id(account_id)
         finally:
-            await client.close()
+            await lobby_client.close()
 
     try:
         results = asyncio.run(_search())
+    except asyncio.TimeoutError as exc:
+        raise HTTPException(504, "雀魂大厅账号查询超时，请稍后重试") from exc
     except Exception as exc:
         raise HTTPException(502, f"雀魂账号验证失败：{exc}")
     match = next((item for item in results if item["account_id"] == account_id), None)
     if not match:
-        return {"exists": False, "account_id": account_id, "nickname": None}
+        return {"exists": False, "reason": "account_not_found",
+                "account_id": account_id, "nickname": None}
     return {"exists": True, **match}
 
 

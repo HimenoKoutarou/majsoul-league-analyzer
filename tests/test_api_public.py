@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
@@ -25,7 +26,9 @@ def client(db):
 
 
 def test_public_endpoints(client, db):
-    db.add(League(name="测试联赛"))
+    db.add(League(name="测试联赛", contest_rule_raw={
+        "game_mode": {"detail_rule": {"shunweima_1": 50}},
+    }))
     ingest_tenhou_game(db, SAMPLE)
     db.add(Team(id=1, name="A队", color="#f00"))
     db.flush()
@@ -35,6 +38,7 @@ def test_public_endpoints(client, db):
     r = client.get("/api/league")
     assert r.status_code == 200
     assert r.json()["game_count"] == 1
+    assert r.json()["contest_rule_raw"]["game_mode"]["detail_rule"]["shunweima_1"] == 50
 
     r = client.get("/api/teams")
     assert r.status_code == 200
@@ -94,3 +98,21 @@ def test_public_endpoints(client, db):
     # 未带 token 访问管理端点应 401（admin 路由在 T8 注册，此处先允许 404）
     r = client.get("/api/admin/teams")
     assert r.status_code in (401, 404, 405)
+
+
+def test_games_pagination_keeps_each_game_complete(client, db):
+    db.add(League(name="测试联赛"))
+    first = deepcopy(SAMPLE)
+    second = deepcopy(SAMPLE)
+    first["ref"] = "260915-first-game"
+    second["ref"] = "260915-second-game"
+    ingest_tenhou_game(db, first)
+    ingest_tenhou_game(db, second)
+
+    page_one = client.get("/api/games?page=1&size=1").json()
+    page_two = client.get("/api/games?page=2&size=1").json()
+    assert page_one["total"] == 2
+    assert len(page_one["items"]) == 1
+    assert len(page_two["items"]) == 1
+    assert len(page_one["items"][0]["players"]) == 4
+    assert len(page_two["items"][0]["players"]) == 4

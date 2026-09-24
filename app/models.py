@@ -31,6 +31,7 @@ class League(Base):
     live_sync_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     live_sync_interval: Mapped[int] = mapped_column(Integer, default=60)
     score_rule: Mapped[dict] = mapped_column(JSON, default=lambda: dict(DEFAULT_SCORE_RULE))
+    contest_rule_raw: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
 

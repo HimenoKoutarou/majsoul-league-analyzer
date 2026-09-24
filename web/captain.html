@@ -139,12 +139,13 @@ async function loadTeam() {
   };
   $("ro-verify").onclick = async () => {
     const account = $("ro-account").value.trim();
+    const nick = $("ro-nick").value.trim();
     if (!account || +account <= 0) { toast("请先填写正确的雀魂ID"); return; }
     const btn = $("ro-verify");
     btn.disabled = true;
     $("ro-verify-result").textContent = "验证中…";
     try {
-      const result = await api(`/api/captain/verify-player?account_id=${encodeURIComponent(account)}`);
+      const result = await api(`/api/captain/verify-player?account_id=${encodeURIComponent(account)}&nickname=${encodeURIComponent(nick)}`);
       if (!result.exists) {
         $("ro-verify-result").textContent = "未找到该雀魂用户，请检查 ID";
         return;

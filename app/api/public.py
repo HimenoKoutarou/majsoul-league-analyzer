@@ -35,6 +35,7 @@ def league_info(db: Session = Depends(get_db)):
         "end_date": row.end_date.isoformat() if row.end_date else None,
         "contact": row.contact,
         "contest_id": row.contest_id, "score_rule": row.score_rule,
+        "contest_rule_raw": row.contest_rule_raw,
         "game_count": db.query(Game).count(),
         "player_count": db.query(Player).count(),
         "team_count": db.query(Team).count(),
@@ -68,23 +69,36 @@ def standings(by: str = Query("team"), db: Session = Depends(get_db)):
 def games_list(page: int = Query(1, ge=1), size: int = Query(20, ge=1, le=100),
                db: Session = Depends(get_db)):
     total = db.query(Game).count()
+    page_games = (db.query(Game)
+                  .order_by(Game.start_time.desc().nullslast(), Game.uuid)
+                  .limit(size).offset((page - 1) * size).all())
+    game_ids = [game.uuid for game in page_games]
+    items: dict[str, dict] = {
+        game.uuid: {
+            "uuid": game.uuid,
+            "start_time": game.start_time.isoformat() if game.start_time else None,
+            "rule": game.mode.get("disp", "") if game.mode else "",
+            "fetched_via": game.fetched_via, "players": [],
+        }
+        for game in page_games
+    }
+    if not game_ids:
+        return {"total": total, "items": []}
     q = (db.query(Game, GamePlayer, Player, Team)
          .join(GamePlayer, GamePlayer.game_uuid == Game.uuid)
          .join(Player, GamePlayer.player_id == Player.id, isouter=True)
          .join(Team, Player.team_id == Team.id, isouter=True)
-         .order_by(Game.start_time.desc().nullslast(), Game.uuid))
-    rows = q.limit(size).offset((page - 1) * size).all()
-    items: dict[str, dict] = {}
+         .filter(Game.uuid.in_(game_ids))
+         .order_by(Game.start_time.desc().nullslast(), Game.uuid, GamePlayer.seat))
+    rows = q.all()
     for game, gp, player, team in rows:
-        item = items.setdefault(game.uuid, {
-            "uuid": game.uuid, "start_time": game.start_time.isoformat() if game.start_time else None,
-            "rule": game.mode.get("disp", "") if game.mode else "",
-            "fetched_via": game.fetched_via, "players": [],
-        })
-        item["players"].append(_serialize_gp(gp, player, team))
+        items[game.uuid]["players"].append(_serialize_gp(gp, player, team))
     for item in items.values():
         item["players"].sort(key=lambda p: p["seat"])
-    return {"total": total, "items": list(items.values())}
+    return {
+        "total": total,
+        "items": [items[game.uuid] for game in page_games],
+    }
 
 
 @router.get("/stats/games")

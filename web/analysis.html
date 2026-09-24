@@ -123,7 +123,7 @@
 </div>
 <script type="module">
 import { api, esc, loadLeagueBrand } from "/static/js/api.js";
-import { finalHand, renderFinalHand, sortTiles } from "/static/js/tiles.js";
+import { finalHand, renderFinalHand, sortTiles } from "/static/js/tiles.js?v=red5-final-hand";
 
 let by = "player";
 let view = "detail";
@@ -644,7 +644,10 @@ function recentMatchLabel(item) {
   const date = item.match_date || "日期未知";
   const half = item.hanchan ? `第${item.hanchan}半庄` : "半庄未知";
   const opponents = (item.opponents || []).join("、") || "对战人未知";
-  return `<div>${esc(date)} · ${esc(half)}</div><div class="muted">对战：${esc(opponents)}</div>`;
+  const label = `<div>${esc(date)} · ${esc(half)}</div><div class="muted">对战：${esc(opponents)}</div>`;
+  return item.game_uuid
+    ? `<a class="game-inline-link" href="/games?uuid=${encodeURIComponent(item.game_uuid)}">${label}</a>`
+    : label;
 }
 
 function renderRecentHand(item) {
@@ -686,7 +689,7 @@ function renderAssociatedGames(data, mode, targetId) {
   const summary = document.getElementById(`${mode}-games-summary`);
   summary.textContent = `共 ${int(data.total)} 场，按时间由新到旧排列`;
   list.innerHTML = data.items.map((game) => `
-    <article class="associated-game">
+    <a class="associated-game" href="/games?uuid=${encodeURIComponent(game.uuid)}">
       <div class="associated-game-head">
         <strong>${esc(formatGameTime(game.start_time))}</strong>
         <span class="muted">${esc(game.rule || "规则未知")}</span>
@@ -706,7 +709,7 @@ function renderAssociatedGames(data, mode, targetId) {
           </div>`;
         }).join("")}
       </div>
-    </article>`).join("") || `<p class="muted">暂无关联对局</p>`;
+    </a>`).join("") || `<p class="muted">暂无关联对局</p>`;
 }
 
 async function loadAssociatedGames(mode, row) {

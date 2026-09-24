@@ -196,6 +196,7 @@ async function loadLeague() {
   $("lg-contest").value = lg.contest_id || "";
   $("init-contest").value = lg.contest_id || "";
   const rule = lg.score_rule || {};
+  const rawRule = lg.contest_rule_raw;
   if (rule.source !== "majsoul_contest" || !Array.isArray(rule.rank_points)) {
     $("score-rule-readonly").textContent = "未同步赛事场规则";
   } else {
@@ -210,7 +211,13 @@ async function loadLeague() {
     ];
     $("score-rule-readonly").innerHTML =
       `<div class="rule-summary">${items.map(([label, value]) =>
-        `<span><b>${esc(label)}</b> ${esc(String(value))}</span>`).join("")}</div>`;
+        `<span><b>${esc(label)}</b> ${esc(String(value))}</span>`).join("")}</div>` +
+      (rawRule && typeof rawRule === "object"
+        ? `<details class="rule-details" open>
+             <summary>完整赛事场规则（雀魂原始数据）</summary>
+             <pre>${esc(JSON.stringify(rawRule, null, 2))}</pre>
+           </details>`
+        : `<p class="muted">完整原始规则将在下一次从雀魂赛事场同步后显示。</p>`);
   }
 }
 $("lg-save").onclick = async () => { if (!await guard()) return;
@@ -313,6 +320,7 @@ async function loadLobbyCredentials() {
     renderLiveSyncStatus(status);
   } catch (e) { /* ignore */ }
 }
+
 $('lobby-credentials-save').onclick = async () => {
   if (!await guard()) return;
   try {
@@ -479,7 +487,7 @@ async function loadAdminGames() {
       <div style="display:flex;gap:10px;align-items:center;justify-content:space-between;
           padding:8px 0;border-bottom:1px solid #e5e7eb;flex-wrap:wrap">
         <div>
-          <b>${esc(g.start_time || "时间未知")}</b>
+          <a href="/games?uuid=${encodeURIComponent(g.uuid)}"><b>${esc(g.start_time || "时间未知")}</b></a>
           <span class="muted"> · ${esc(g.rule || "")}</span>
           <div class="muted" style="font-size:12px">${esc(g.uuid)} · ${g.players.map((p) => esc(p.nickname)).join("、")}</div>
         </div>

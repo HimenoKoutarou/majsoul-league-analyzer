@@ -85,10 +85,13 @@ class DHSClient:
     """赛事管理客户端，使用当前 DHS HTTP Token API。"""
 
     def __init__(self):
+        # HTTP API 用于赛事同步；账号验证仍使用赛事管理 WebSocket RPC。
+        self.channel = LiqiChannel(config.DHS_WS)
         self.http = None
         self.token = None
         self.contest = None
         self.contest_rule = None
+        self.contest_rule_raw = None
         self.seasons = []
         self.season_id = None
 
@@ -155,11 +158,14 @@ class DHSClient:
         if isinstance(self.contest, dict) and isinstance(self.contest.get("data"), dict):
             self.contest = self.contest["data"]
         self.contest.setdefault("unique_id", unique_id)
+        self.contest_rule_raw = self.contest
         self.contest_rule = await self.fetch_contest_rule()
         self.seasons = await self._get("/api/contest/fetch_contest_season_list",
                                       unique_id=unique_id)
         if isinstance(self.seasons, dict):
             self.seasons = self.seasons.get("list", [])
+        if not self.seasons and isinstance(self.contest, dict):
+            self.seasons = self.contest.get("season_list", []) or []
         if self.seasons:
             current = next((item for item in self.seasons if item.get("state") not in (3, 4)),
                            self.seasons[0])
@@ -167,6 +173,8 @@ class DHSClient:
         return self.contest
 
     async def close(self):
+        if self.channel:
+            await self.channel.close()
         if self.http:
             await self.http.aclose()
             self.http = None
@@ -189,6 +197,7 @@ class DHSClient:
                      "/api/contest/fetch_contest_game_rule_setting"):
             try:
                 payload = await self._get(path, unique_id=unique_id)
+                self.contest_rule_raw = payload
                 self.contest_rule = contest_rule_to_score_rule(payload)
                 return self.contest_rule
             except (MajsoulApiError, ValueError) as exc:
@@ -202,6 +211,8 @@ class DHSClient:
                                unique_id=self.contest.get("unique_id"),
                                season_id=self.season_id, search="", state=2,
                                offset=0, limit=10000)
+        if isinstance(data, dict) and isinstance(data.get("data"), dict):
+            data = data["data"]
         rows = data.get("list", []) if isinstance(data, dict) else data
         return [{"account_id": row.get("account_id"), "nickname": row.get("nickname")}
                 for row in rows or [] if row.get("account_id") and row.get("nickname")]
@@ -232,12 +243,73 @@ class DHSClient:
         return row.get("uuid") or basic.get("uuid") or row.get("game_uuid")
 
     async def search_by_nickname(self, nicknames: list[str]) -> list[dict]:
+        if self.http and self.contest:
+            seasons = self.seasons or self.contest.get("season_list", [])
+            unique_id = self.contest.get("unique_id")
+            for nickname in nicknames:
+                for season in seasons or []:
+                    season_id = season.get("season_id") if isinstance(season, dict) else None
+                    if not season_id:
+                        continue
+                    data = await self._get(
+                        "/api/contest/contest_season_player_list",
+                        unique_id=unique_id,
+                        season_id=season_id,
+                        search=nickname,
+                        state=2,
+                        offset=0,
+                        limit=100,
+                    )
+                    if isinstance(data, dict) and isinstance(data.get("data"), dict):
+                        data = data["data"]
+                    rows = data.get("list", []) if isinstance(data, dict) else data
+                    matches = [
+                        {"account_id": row.get("account_id"), "nickname": row.get("nickname")}
+                        for row in rows or []
+                        if row.get("account_id") and row.get("nickname")
+                    ]
+                    if matches:
+                        return matches
+            return []
+
         res = await self.channel.call("searchAccountByNickname",
                                       query_nicknames=nicknames)
         return [{"account_id": i.account_id, "nickname": i.nickname}
                 for i in res.search_result]
 
     async def search_by_account_id(self, account_id: int) -> list[dict]:
+        """通过当前赛事的 HTTP 名单接口查找账号，避免依赖旧 WebSocket 网关。"""
+        if self.http and self.contest:
+            seasons = self.seasons or self.contest.get("season_list", [])
+            unique_id = self.contest.get("unique_id")
+            for season in seasons or []:
+                season_id = season.get("season_id") if isinstance(season, dict) else None
+                if not season_id:
+                    continue
+                data = await self._get(
+                    "/api/contest/contest_season_player_list",
+                    unique_id=unique_id,
+                    season_id=season_id,
+                    search=str(account_id),
+                    state=2,
+                    offset=0,
+                    limit=100,
+                )
+                if isinstance(data, dict) and isinstance(data.get("data"), dict):
+                    data = data["data"]
+                rows = data.get("list", []) if isinstance(data, dict) else data
+                matches = [
+                    {"account_id": row.get("account_id"), "nickname": row.get("nickname")}
+                    for row in rows or []
+                    if int(row.get("account_id", 0) or 0) == account_id
+                    and row.get("nickname")
+                ]
+                if matches:
+                    return matches
+            return []
+
+        if not self.channel:
+            raise MajsoulApiError(0, "赛事场验证客户端未连接")
         res = await self.channel.call("searchAccountByEid", eids=[account_id])
         return [{"account_id": i.account_id, "nickname": i.nickname}
                 for i in res.search_result]
@@ -274,8 +346,10 @@ class LobbyClient:
             channel = LiqiChannel(endpoint)
             try:
                 await channel.connect()
-                await channel.call("heartbeat", no_operation_counter=0)
-                self.client_version_string = f"web-{self.version}"
+                # version.json 当前返回形如 0.11.252.w，但大厅 RPC
+                # 的 client_version_string 不包含末尾的 .w。
+                version = self.version.removesuffix(".w")
+                self.client_version_string = f"web-{version}"
                 req = pb.ReqLogin(
                     reconnect=False,
                     device=pb.ClientDeviceInfo(
@@ -284,10 +358,11 @@ class LobbyClient:
                         screen_width=1920, screen_height=1080,
                     ),
                     random_key=str(uuidlib.uuid4()),
-                    currency_platforms=[1, 2, 5, 6, 8, 10, 11],
+                    currency_platforms=[2],
                     type=0,
                     tag="cn",
                     client_version_string=self.client_version_string,
+                    gen_access_token=True,
                 )
                 if access_token:
                     check = await channel.call(
@@ -361,6 +436,16 @@ class LobbyClient:
         if not self.channel:
             raise MajsoulApiError(0, "大厅 WebSocket 未登录")
         return await self.channel.call("fetchGameLiveList", filter_id=int(filter_id))
+
+    async def search_by_account_id(self, account_id: int) -> list[dict]:
+        """通过大厅协议查询全局雀魂账号。"""
+        if not self.channel:
+            raise MajsoulApiError(0, "大厅 WebSocket 未登录")
+        result = await self.channel.call("searchAccountById", account_id=int(account_id))
+        player = result.player
+        if not player.account_id:
+            return []
+        return [{"account_id": player.account_id, "nickname": player.nickname}]
 
     @staticmethod
     def _parse_detail_payload(data: bytes):

@@ -79,7 +79,7 @@
 </div>
 <script type="module">
 import { api, esc, loadLeagueBrand } from "/static/js/api.js";
-import { doraTiles, tileRow, finalHand, renderFinalHand, sortTiles } from "/static/js/tiles.js";
+import { doraTiles, tileRow, finalHand, renderFinalHand, sortTiles } from "/static/js/tiles.js?v=red5-final-hand";
 
 let page = 1, total = 0;
 const rankBadge = (r) => `<span class="rank-badge rank-${r}">${r}</span>`;
@@ -112,7 +112,9 @@ async function load() {
       </div>
     </div>`).join("") || `<div class="card muted">暂无对局</div>`;
   document.querySelectorAll("#list .card[data-uuid]").forEach((el) =>
-    el.addEventListener("click", () => openDetail(el.dataset.uuid)));
+    el.addEventListener("click", () => {
+      location.href = `/games?uuid=${encodeURIComponent(el.dataset.uuid)}`;
+    }));
 }
 
 async function openDetail(uuid) {
@@ -161,6 +163,7 @@ async function openDetail(uuid) {
   const wrap = document.getElementById("kyokus");
   g.kyokus.forEach((k) => {
     const s = k.summary;
+    const sticksStart = Number(s.round?.[2] || 0);
     const card = document.createElement("div");
     card.className = "card";
     const resultHtml = s.end === "agari"
@@ -172,7 +175,10 @@ async function openDetail(uuid) {
       : `<span class="tag">${s.end === "nagashi" ? "流し満貫" : "流局"}</span>`;
     card.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap">
-        <h3 style="margin:0">${s.title}</h3>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <h3 style="margin:0">${s.title}</h3>
+          <span class="tag">供托 ${sticksStart}根</span>
+        </div>
         <div>${resultHtml}</div>
       </div>
       <div class="muted" style="margin:8px 0">宝牌</div>
@@ -234,7 +240,10 @@ document.getElementById("next").onclick = () => {
 document.getElementById("detail-modal").addEventListener("click", (e) => {
   if (e.target.id === "detail-modal") e.target.style.display = "none";
 });
-load().catch((e) => alert(e.message));
+load().then(() => {
+  const uuid = new URLSearchParams(location.search).get("uuid");
+  if (uuid) openDetail(uuid);
+}).catch((e) => alert(e.message));
 </script>
 </body>
 </html>

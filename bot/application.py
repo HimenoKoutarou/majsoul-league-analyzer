@@ -15,6 +15,20 @@ from .state import StateStore
 log = logging.getLogger("majsoul-bot")
 
 
+def event_matches_watch_accounts(event: dict, watch_account_ids) -> bool:
+    """判断事件是否包含 bot 配置的任一监视账号；空名单表示不过滤。"""
+    if not watch_account_ids:
+        return True
+    for player in (event.get("payload") or {}).get("players") or []:
+        try:
+            account_id = int(player.get("account_id"))
+        except (TypeError, ValueError):
+            continue
+        if account_id in watch_account_ids:
+            return True
+    return False
+
+
 class BotApplication:
     def __init__(self):
         if not config.API_TOKEN:
@@ -50,9 +64,10 @@ class BotApplication:
                 events = result.get("items") or []
                 for event in events:
                     if event.get("event_type") == "game.created":
-                        message = render_game_created(event.get("payload") or {})
-                        for group_id in self.state.target_groups(self.group_ids):
-                            await self.adapter.send_group_message(group_id, message)
+                        if event_matches_watch_accounts(event, config.WATCH_ACCOUNT_IDS):
+                            message = render_game_created(event.get("payload") or {})
+                            for group_id in self.state.target_groups(self.group_ids):
+                                await self.adapter.send_group_message(group_id, message)
                     self.state.event_cursor = max(self.state.event_cursor, int(event["id"]))
                     self.state.save()
                 if not events:
@@ -84,10 +99,15 @@ class BotApplication:
     def _status_message(self) -> str:
         groups = self.state.target_groups(self.group_ids)
         digest_status = "开启" if config.DIGEST_ENABLED else "关闭"
+        watch_accounts = (
+            "全部" if not config.WATCH_ACCOUNT_IDS
+            else ", ".join(str(account_id) for account_id in sorted(config.WATCH_ACCOUNT_IDS))
+        )
         return "\n".join([
             "【机器人状态】",
             f"事件游标：{self.state.event_cursor}",
             f"推送群：{len(groups)} 个",
+            f"监视账号：{watch_accounts}",
             f"每日摘要：{digest_status}",
             f"摘要时间：{config.DIGEST_TIME}",
             f"最近摘要：{self.state.last_digest_date or '尚未发送'}",

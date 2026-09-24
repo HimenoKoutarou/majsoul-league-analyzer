@@ -489,6 +489,7 @@ def profile_stats(db: Session, by: str, target_id: int | None = None) -> dict:
             if player.nickname not in opponents:
                 opponents.append(player.nickname)
         return {
+            "game_uuid": row.game_uuid,
             "match_date": match_date,
             "hanchan": hanchan_by_game.get(row.game_uuid),
             "opponents": opponents,

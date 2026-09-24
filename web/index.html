@@ -108,14 +108,28 @@ async function main() {
   const games = await api("/api/games?size=5");
   const recent = document.getElementById("recent");
   recent.innerHTML = games.items.map((g) => `
-    <div class="card" style="margin-bottom:12px;padding:14px">
-      <div class="muted">${g.start_time || ""} · ${esc(g.rule)}</div>
-      <div style="margin-top:6px">${g.players.map((p) => `
-        <span style="margin-right:14px">${rankBadge(p.rank)}
-        <span class="team-dot" style="background:${p.team_color || "#555"}"></span>
-        ${esc(p.nickname)} <span class="muted">${p.final_score}</span></span>`).join("")}
+    <a class="home-game-link" href="/games?uuid=${encodeURIComponent(g.uuid)}"
+       aria-label="查看 ${esc(g.start_time || "时间未知")} 的对局">
+      <div class="card home-game-card">
+        <div class="home-game-head">
+          <span class="muted">${g.start_time || "时间未知"} · ${esc(g.rule || "规则未知")}</span>
+          <span class="muted">${g.fetched_via === "dhs" ? "赛事场同步" : "牌谱录入"}</span>
+        </div>
+        <div class="home-game-players">${g.players.map((p) => `
+          <span class="home-game-player">
+            <span>${rankBadge(p.rank)}</span>
+            <span class="team-dot" style="background:${esc(p.team_color || "#555")}"></span>
+            <span class="home-game-player-name">
+              <span>${esc(p.nickname)}</span>
+              <span class="muted">${esc(p.team_name || "未分队")}</span>
+            </span>
+            <span class="muted home-game-score">
+              ${p.final_score} 点 · pt ${p.pt > 0 ? "+" : ""}${p.pt}
+            </span>
+          </span>`).join("")}
+        </div>
       </div>
-    </div>`).join("") || `<div class="muted">暂无对局，去<a href="/admin">管理后台</a>录入</div>`;
+    </a>`).join("") || `<div class="muted">暂无对局，去<a href="/admin">管理后台</a>录入</div>`;
 }
 main().catch((e) => alert(e.message));
 </script>

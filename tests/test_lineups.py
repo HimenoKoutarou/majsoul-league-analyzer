@@ -346,21 +346,15 @@ def test_captain_team_roster_management(client, db):
 def test_captain_can_verify_majsoul_account(client, db, monkeypatch):
     _seed(client, db)
     _login(client)
-    monkeypatch.setattr(config, "DHS_USERNAME", "dhs-user")
-    monkeypatch.setattr(config, "DHS_PASSWORD", "dhs-pass")
+    db.add(League(name="测试联赛", lobby_username="lobby-user",
+                  lobby_password="lobby-pass"))
+    db.commit()
 
-    class FakeChannel:
-        async def connect(self):
-            pass
-
-        async def call(self, method, **fields):
-            assert method == "loginContestManager"
-            assert fields["account"] == "dhs-user"
-            return None
-
-    class FakeDHS:
-        def __init__(self):
-            self.channel = FakeChannel()
+    class FakeLobby:
+        async def connect_login(self, username=None, password=None, access_token=None):
+            assert username == "lobby-user"
+            assert password == "lobby-pass"
+            assert access_token is None
 
         async def search_by_account_id(self, account_id):
             assert account_id == 123456
@@ -369,7 +363,7 @@ def test_captain_can_verify_majsoul_account(client, db, monkeypatch):
         async def close(self):
             pass
 
-    monkeypatch.setattr("app.services.majsoul.clients.DHSClient", FakeDHS)
+    monkeypatch.setattr("app.services.majsoul.clients.LobbyClient", FakeLobby)
     r = client.get("/api/captain/verify-player?account_id=123456")
     assert r.status_code == 200
     assert r.json() == {
@@ -380,30 +374,20 @@ def test_captain_can_verify_majsoul_account(client, db, monkeypatch):
     assert r.status_code == 422
 
 
-def test_captain_verify_uses_persistent_sync_credentials(client, db, monkeypatch):
+def test_captain_verify_uses_persistent_lobby_credentials(client, db, monkeypatch):
     _seed(client, db)
     _login(client)
-    db.add(League(name="测试联赛"))
+    db.add(League(name="测试联赛", lobby_username="saved-lobby-user",
+                  lobby_password="saved-lobby-pass"))
     db.commit()
-    league = db.query(League).first()
-    league.sync_username = "saved-dhs-user"
-    league.sync_password = "saved-dhs-pass"
-    db.commit()
-    monkeypatch.setattr(config, "DHS_USERNAME", "")
-    monkeypatch.setattr(config, "DHS_PASSWORD", "")
+    monkeypatch.setattr(config, "MS_USERNAME", "")
+    monkeypatch.setattr(config, "MS_PASSWORD", "")
 
-    class FakeChannel:
-        async def connect(self):
-            pass
-
-        async def call(self, method, **fields):
-            assert method == "loginContestManager"
-            assert fields["account"] == "saved-dhs-user"
-            return None
-
-    class FakeDHS:
-        def __init__(self):
-            self.channel = FakeChannel()
+    class FakeLobby:
+        async def connect_login(self, username=None, password=None, access_token=None):
+            assert username == "saved-lobby-user"
+            assert password == "saved-lobby-pass"
+            assert access_token is None
 
         async def search_by_account_id(self, account_id):
             return [{"account_id": account_id, "nickname": "持久化验证雀士"}]
@@ -411,19 +395,70 @@ def test_captain_verify_uses_persistent_sync_credentials(client, db, monkeypatch
         async def close(self):
             pass
 
-    monkeypatch.setattr("app.services.majsoul.clients.DHSClient", FakeDHS)
-    response = client.get("/api/captain/verify-player?account_id=123456")
-    assert response.status_code == 200
-    assert response.json()["nickname"] == "持久化验证雀士"
+    monkeypatch.setattr("app.services.majsoul.clients.LobbyClient", FakeLobby)
+    r = client.get("/api/captain/verify-player?account_id=123456")
+    assert r.status_code == 200
+    assert r.json() == {
+        "exists": True, "account_id": 123456, "nickname": "持久化验证雀士"
+    }
+
+
+def test_dhs_client_keeps_manager_channel_for_account_search():
+    from app.services.majsoul.clients import DHSClient
+
+    client = DHSClient()
+    try:
+        assert client.channel is not None
+    finally:
+        import asyncio
+        asyncio.run(client.close())
 
 
 def test_captain_verify_reports_unconfigured_service(client, db, monkeypatch):
     _seed(client, db)
     _login(client)
+    monkeypatch.setattr(config, "MS_USERNAME", "")
+    monkeypatch.setattr(config, "MS_PASSWORD", "")
+    monkeypatch.setattr(config, "MS_ACCESS_TOKEN", "")
     monkeypatch.setattr(config, "DHS_USERNAME", "")
     monkeypatch.setattr(config, "DHS_PASSWORD", "")
     r = client.get("/api/captain/verify-player?account_id=123456")
     assert r.status_code == 503
+
+
+def test_captain_verify_checks_global_id_not_contest_membership(
+    client, db, monkeypatch
+):
+    _seed(client, db)
+    _login(client)
+    db.add(League(name="测试联赛", contest_id=699366,
+                  sync_username="dhs-user", sync_password="dhs-pass",
+                  lobby_username="lobby-user", lobby_password="lobby-pass"))
+    db.commit()
+
+    class FakeLobby:
+        async def connect_login(self, username=None, password=None, access_token=None):
+            assert username == "lobby-user"
+            assert password == "lobby-pass"
+            assert access_token is None
+
+        async def search_by_account_id(self, account_id):
+            return [{"account_id": account_id, "nickname": "姬野家の星奏"}]
+
+        async def close(self):
+            pass
+
+    monkeypatch.setattr("app.services.majsoul.clients.LobbyClient", FakeLobby)
+    response = client.get(
+        "/api/captain/verify-player"
+        "?account_id=25891999&nickname=%E5%A7%AC%E9%87%8E%E5%AE%B6%E3%81%AE%E6%98%9F%E5%A5%8F"
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "exists": True,
+        "account_id": 25891999,
+        "nickname": "姬野家の星奏",
+    }
 
 
 def test_captain_logo_upload(client, db, monkeypatch):

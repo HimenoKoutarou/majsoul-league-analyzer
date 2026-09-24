@@ -29,10 +29,16 @@ $env:MS_PASSWORD = "your-majsoul-password"
 $env:BOT_API_BASE_URL = "http://127.0.0.1:8000"
 $env:BOT_API_TOKEN = "replace-with-the-same-token"
 $env:BOT_GROUP_IDS = "123456789,987654321"
+$env:BOT_WATCH_ACCOUNT_IDS = "12345678,23456789"
 $env:ONEBOT_WS_URL = "ws://127.0.0.1:6700/onebot/v11/ws"
 $env:ONEBOT_ACCESS_TOKEN = ""
 python -m bot
 ```
+
+`BOT_WATCH_ACCOUNT_IDS` 是 bot 独立维护的监视名单，不属于联赛配置。设置后，
+bot 仍会消费主站发布的全部 `game.created` 事件，但只向群里推送包含任一指定
+雀魂账号的完成牌谱。留空时推送全部新牌谱；修改名单后重启 bot 生效。主站仍需
+开启大厅实时抓取，所有抓到的牌谱都会正常入库。
 
 默认状态文件为 `bot_data/state.json`，保存事件消费游标。机器人重启后会从上次成功处理的位置继续消费；该目录已加入 `.gitignore`。
 

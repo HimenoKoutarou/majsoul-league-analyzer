@@ -23,6 +23,10 @@ class FakeDHS:
             "shunweima_3": 0,
             "shunweima_4": -30,
         }
+        self.contest_rule_raw = {
+            "contest_name": "2026测试联赛",
+            "game_mode": {"detail_rule": dict(self.contest_rule)},
+        }
 
     async def fetch_contest_info(self):
         class C:
@@ -96,14 +100,15 @@ def test_run_dhs_sync(db):
     # 同步记录
     run = db.query(SyncRun).one()
     assert run.status == "success"
-    assert db.query(League).first().score_rule["rank_points"] == [0, 30, 0, -30]
+    assert db.query(League).first().score_rule["rank_points"] == [50, 30, 0, -30]
+    assert db.query(League).first().contest_rule_raw["game_mode"]["detail_rule"]["shunweima_2"] == 30
 
     # 幂等：再跑一次不重复入库
     result2 = sync_mod.run_dhs_sync(
         db, contest_id=123, username="u", password="p",
         make_dhs=lambda u, p: _ok(FakeDHS()), make_lobby=lambda u, p: _ok(FakeLobby()))
     assert result2["games_added"] == 0
-    assert db.query(League).first().score_rule["rank_points"] == [0, 30, 0, -30]
+    assert db.query(League).first().score_rule["rank_points"] == [50, 30, 0, -30]
 
 
 def test_sync_partial_on_error(db):

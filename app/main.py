@@ -126,6 +126,7 @@ def init_db():
             "auto_sync_enabled": "BOOLEAN",
             "live_sync_enabled": "BOOLEAN",
             "live_sync_interval": "INTEGER NOT NULL DEFAULT 60",
+            "contest_rule_raw": "JSON",
         },
         "captains": {"password_plaintext": "VARCHAR(128)"},
         "teams": {"team_number": "INTEGER NOT NULL DEFAULT 0"},

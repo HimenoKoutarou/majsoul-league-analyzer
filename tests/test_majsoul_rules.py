@@ -17,7 +17,7 @@ def test_contest_rule_converts_uma_to_four_rank_points():
             }
         }
     })
-    assert rule["rank_points"] == [0, 30, 0, -30]
+    assert rule["rank_points"] == [50, 30, 0, -30]
     assert rule["source"] == "majsoul_contest"
     assert rule["init_point"] == 25000
     assert rule["jingsuanyuandian"] == 1000
@@ -26,6 +26,16 @@ def test_contest_rule_converts_uma_to_four_rank_points():
 def test_contest_rule_accepts_direct_rank_points():
     rule = contest_rule_to_score_rule({"rank_points": [90, 45, 0, -45]})
     assert rule["rank_points"] == [90, 45, 0, -45]
+
+
+def test_contest_rule_accepts_explicit_first_rank_point():
+    rule = contest_rule_to_score_rule({
+        "shunweima_1": 40,
+        "shunweima_2": 10,
+        "shunweima_3": -10,
+        "shunweima_4": -40,
+    })
+    assert rule["rank_points"] == [40, 10, -10, -40]
 
 
 def test_contest_rule_requires_complete_scoring_rule():

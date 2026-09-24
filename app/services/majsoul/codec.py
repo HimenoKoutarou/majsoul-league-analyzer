@@ -24,6 +24,8 @@ METHODS = {
     "oauth2Login": (".lq.Lobby.oauth2Login", "ReqOauth2Login", "ResLogin"),
     "fetchGameLiveList": (".lq.Lobby.fetchGameLiveList", "ReqGameLiveList", "ResGameLiveList"),
     "fetchGameRecord": (".lq.Lobby.fetchGameRecord", "ReqGameRecord", "ResGameRecord"),
+    "searchAccountById": (".lq.Lobby.searchAccountById",
+                          "ReqSearchAccountById", "ResSearchAccountById"),
     "loginContestManager": (".lq.CustomizedContestManagerApi.loginContestManager",
                             "ReqContestManageLogin", "ResContestManageLogin"),
     "manageContest": (".lq.CustomizedContestManagerApi.manageContest",

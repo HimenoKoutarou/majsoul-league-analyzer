@@ -30,6 +30,7 @@ def enqueue_game_created(db: Session, game_uuid: str) -> EventOutbox | None:
                 "seat": gp.seat,
                 "nickname": gp.nickname,
                 "player_id": gp.player_id,
+                "account_id": player.account_id if player else None,
                 "team_id": team.id if team else None,
                 "team_name": team.name if team else None,
                 "team_color": team.color if team else None,
@@ -37,7 +38,7 @@ def enqueue_game_created(db: Session, game_uuid: str) -> EventOutbox | None:
                 "rank": gp.rank,
                 "pt": gp.pt,
             }
-            for gp, _player, team in rows
+            for gp, player, team in rows
         ],
     }
     event = EventOutbox(event_type="game.created", aggregate_id=game_uuid,

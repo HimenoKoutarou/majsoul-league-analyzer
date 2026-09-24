@@ -65,6 +65,7 @@ def test_live_sync_discovers_deduplicates_and_ingests(db):
     assert event.event_type == "game.created"
     assert event.aggregate_id == SAMPLE["ref"]
     assert len(event.payload["players"]) == 4
+    assert {player["account_id"] for player in event.payload["players"]} == {1, 2, 3, 4}
     task = db.get(MajsoulFetchTask, SAMPLE["ref"])
     assert task.status == "completed"
     assert task.attempts == 1

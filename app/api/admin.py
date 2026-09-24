@@ -148,25 +148,6 @@ async def update_league_logo(file: UploadFile, db: Session = Depends(get_db)):
     return {"logo_path": league.logo_path}
 
 
-@router.put("/score-rule", dependencies=[Depends(require_admin)])
-def update_score_rule(body: dict, db: Session = Depends(get_db)):
-    rp = body.get("rank_points")
-    if (not isinstance(rp, list) or len(rp) != 4
-            or not all(isinstance(x, (int, float)) for x in rp)):
-        raise HTTPException(422, "rank_points 必须是4个数字")
-    tiebreak = body.get("tiebreak", "raw_points")
-    if tiebreak not in ("raw_points", "pt"):
-        raise HTTPException(422, "tiebreak 必须是 raw_points 或 pt")
-    league = _league(db)
-    league.score_rule = {
-        "rank_points": rp,
-        "allow_negative": bool(body.get("allow_negative", True)),
-        "tiebreak": tiebreak,
-    }
-    db.commit()
-    return {"score_rule": league.score_rule}
-
-
 @router.post("/teams", dependencies=[Depends(require_admin)])
 def create_team(body: dict, db: Session = Depends(get_db)):
     if not body.get("name"):

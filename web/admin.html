@@ -44,11 +44,8 @@
     <p><label>Logo <input type="file" id="lg-logo" accept=".png,.jpg,.jpeg,.webp,.svg"></label></p>
     <hr>
     <h3>积分规则</h3>
-    <p>顺位分 <input id="rp0" type="number" style="width:70px" value="90">
-      <input id="rp1" type="number" style="width:70px" value="45">
-      <input id="rp2" type="number" style="width:70px" value="0">
-      <input id="rp3" type="number" style="width:70px" value="-45">
-      <button class="btn primary" id="rp-save">保存积分规则</button></p>
+    <p class="muted">积分规则由雀魂赛事场同步获取，管理员不能在此手动修改。</p>
+    <div id="score-rule-readonly" class="muted">加载中…</div>
   </div>
 
   <div id="tab-teams" class="card" style="display:none">
@@ -198,8 +195,23 @@ async function loadLeague() {
   $("lg-desc").value = lg.description || "";
   $("lg-contest").value = lg.contest_id || "";
   $("init-contest").value = lg.contest_id || "";
-  const rp = lg.score_rule.rank_points;
-  ["rp0", "rp1", "rp2", "rp3"].forEach((id, i) => $(id).value = rp[i]);
+  const rule = lg.score_rule || {};
+  if (rule.source !== "majsoul_contest" || !Array.isArray(rule.rank_points)) {
+    $("score-rule-readonly").textContent = "未同步赛事场规则";
+  } else {
+    const yesNo = (value) => value ? "是" : "否";
+    const items = [
+      ["来源", "雀魂赛事场"],
+      ["顺位分", rule.rank_points.join(" / ")],
+      ["起始点数", rule.init_point ?? "—"],
+      ["返点", rule.fandian ?? "—"],
+      ["原点", rule.jingsuanyuandian ?? "—"],
+      ["允许飞点", yesNo(rule.can_jifei)],
+    ];
+    $("score-rule-readonly").innerHTML =
+      `<div class="rule-summary">${items.map(([label, value]) =>
+        `<span><b>${esc(label)}</b> ${esc(String(value))}</span>`).join("")}</div>`;
+  }
 }
 $("lg-save").onclick = async () => { if (!await guard()) return;
   await api("/api/admin/league", { method: "PUT", headers: H(),
@@ -217,12 +229,6 @@ $("lg-logo").onchange = async (e) => { if (!await guard()) return;
     method: "PUT", credentials: "same-origin", body: fd });
   if (resp.status === 401) { toast("请重新登录"); setTimeout(() => logout(), 1000); return; }
   toast(resp.ok ? "Logo 已更新" : "上传失败"); };
-$("rp-save").onclick = async () => { if (!await guard()) return;
-  await api("/api/admin/score-rule", { method: "PUT", headers: H(),
-    body: JSON.stringify({ rank_points: [+$("rp0").value, +$("rp1").value,
-      +$("rp2").value, +$("rp3").value] }) });
-  toast("积分规则已保存"); };
-
 async function loadTeams() {
   const teams = await api("/api/teams");
   $("team-list").innerHTML = teams.map((t) => {

@@ -122,15 +122,13 @@ def test_lobby_credentials_and_live_sync_require_credentials(client, db, monkeyp
     assert stopped.json()["enabled"] is False
 
 
-def test_admin_score_rule(client, db):
+def test_admin_score_rule_is_read_only(client, db):
     _seed_league(db)
     r = client.put("/api/admin/score-rule",
                    json={"rank_points": [100, 50, -10, -100], "allow_negative": True,
                          "tiebreak": "raw_points"}, headers=_auth(client))
-    assert r.status_code == 200
-    assert db.query(League).first().score_rule["rank_points"] == [100, 50, -10, -100]
-    r = client.put("/api/admin/score-rule", json={"rank_points": [1, 2]}, headers=_auth(client))
-    assert r.status_code == 422
+    assert r.status_code == 404
+    assert db.query(League).first().score_rule["rank_points"] == [90, 45, 0, -45]
 
 
 def test_admin_teams_players_crud(client, db):

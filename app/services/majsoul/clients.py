@@ -11,6 +11,7 @@ import app.config as config
 from . import liqi_combined_pb2 as pb
 
 from app.services.majsoul.codec import LiqiChannel, MajsoulApiError
+from .rules import contest_rule_to_score_rule
 
 MS_HOST = "https://game.maj-soul.com"
 RECORD_HOST = "https://record-v2.maj-soul.com:5333/majsoul/game_record"
@@ -87,6 +88,7 @@ class DHSClient:
         self.http = None
         self.token = None
         self.contest = None
+        self.contest_rule = None
         self.seasons = []
         self.season_id = None
 
@@ -153,6 +155,7 @@ class DHSClient:
         if isinstance(self.contest, dict) and isinstance(self.contest.get("data"), dict):
             self.contest = self.contest["data"]
         self.contest.setdefault("unique_id", unique_id)
+        self.contest_rule = await self.fetch_contest_rule()
         self.seasons = await self._get("/api/contest/fetch_contest_season_list",
                                       unique_id=unique_id)
         if isinstance(self.seasons, dict):
@@ -170,6 +173,27 @@ class DHSClient:
 
     async def fetch_contest_info(self):
         return self.contest
+
+    async def fetch_contest_rule(self):
+        """拉取当前赛事场的完整规则，而不是使用站内默认值。"""
+        unique_id = self.contest.get("unique_id") if self.contest else None
+        if not unique_id:
+            raise MajsoulApiError(0, "赛事场规则请求缺少 unique_id")
+        try:
+            self.contest_rule = contest_rule_to_score_rule(self.contest)
+            return self.contest_rule
+        except ValueError:
+            pass
+        last_error = None
+        for path in ("/api/contest/fetch_contest_game_rule",
+                     "/api/contest/fetch_contest_game_rule_setting"):
+            try:
+                payload = await self._get(path, unique_id=unique_id)
+                self.contest_rule = contest_rule_to_score_rule(payload)
+                return self.contest_rule
+            except (MajsoulApiError, ValueError) as exc:
+                last_error = exc
+        raise MajsoulApiError(0, f"赛事场规则拉取失败：{last_error}") from last_error
 
     async def fetch_players(self) -> list[dict]:
         if not self.season_id:

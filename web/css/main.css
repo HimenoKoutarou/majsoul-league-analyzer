@@ -438,6 +438,47 @@ input[type="color"]::-webkit-color-swatch { border: 0; border-radius: 4px; }
   gap: 20px;
 }
 
+.home-sections {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+}
+
+.home-team-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.home-team-cell .team-dot {
+  flex: 0 0 auto;
+  margin-right: 0;
+}
+
+.home-team-logo {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border: 1px solid rgba(59, 48, 49, .14);
+  border-radius: 6px;
+  object-fit: contain;
+  background: #fff;
+}
+
+.rule-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  padding: 10px 12px;
+  border: 1px solid rgba(59, 48, 49, .12);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, .58);
+}
+
+.rule-summary span {
+  white-space: nowrap;
+}
+
 .stat-cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));

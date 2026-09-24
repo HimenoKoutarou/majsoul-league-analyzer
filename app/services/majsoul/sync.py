@@ -7,11 +7,26 @@ from datetime import date, datetime
 
 from sqlalchemy.orm import Session
 
-from app.models import Game, Player, SyncRun
+from app.models import Game, League, Player, SyncRun
 from app.services.paipu.ingest import ingest_tenhou_game
+from app.services.majsoul.rules import contest_rule_to_score_rule
 
 _state_lock = threading.Lock()
 _sync_state: dict = {"running": False, "phase": "", "progress": "", "error": None}
+
+
+def _apply_contest_rule(db: Session, contest_rule) -> None:
+    if contest_rule is None:
+        return
+    if isinstance(contest_rule, dict) and "rank_points" in contest_rule:
+        rule = contest_rule
+    else:
+        rule = contest_rule_to_score_rule(contest_rule)
+    league = db.query(League).first()
+    if not league:
+        league = League(name="麻将联赛")
+        db.add(league)
+    league.score_rule = rule
 
 
 def _record_on_or_after(record, start_date: date) -> bool:
@@ -65,6 +80,11 @@ def run_dhs_sync(db: Session, contest_id: int, username: str, password: str,
             dhs = DHSClient()
             await dhs.connect_login(contest_id, username, password)
         try:
+            _apply_contest_rule(db, getattr(dhs, "contest_rule", None))
+            league = db.query(League).first()
+            if league:
+                league.contest_id = contest_id
+            db.commit()
             for info in await dhs.fetch_players():
                 player = db.query(Player).filter(
                     Player.account_id == info["account_id"]).first()
@@ -178,6 +198,7 @@ def init_from_contest(db: Session, contest_id: int, username: str, password: str
         await client.connect_login(contest_id, username, password)
         try:
             contest = await client.fetch_contest_info()
+            score_rule = getattr(client, "contest_rule", None)
             players = await client.fetch_players()
             if isinstance(contest, dict):
                 name = contest.get("contest_name") or contest.get("name")
@@ -189,17 +210,18 @@ def init_from_contest(db: Session, contest_id: int, username: str, password: str
                 name = item.get("content") if item else None
             if not isinstance(name, str) or not name.strip():
                 name = f"赛事场 {contest_id}"
-            return name, players
+            return name, players, score_rule
         finally:
             await client.close()
 
-    name, players = asyncio.run(_main())
+    name, players, score_rule = asyncio.run(_main())
     league = db.query(League).first()
     if not league:
         league = League(name=name)
         db.add(league)
     league.name = name
     league.contest_id = contest_id
+    _apply_contest_rule(db, score_rule)
     for info in players:
         player = db.query(Player).filter(Player.account_id == info["account_id"]).first()
         if not player:

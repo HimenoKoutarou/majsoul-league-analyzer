@@ -26,11 +26,11 @@
       <div class="muted" id="league-desc" style="margin-top:6px"></div>
     </div>
   </div>
-  <div class="grid-2">
+  <div class="home-sections">
     <div class="card">
       <h2>队伍积分榜</h2>
       <div style="overflow:auto"><table id="standings"><thead>
-        <tr><th>#</th><th>队伍</th><th>场次</th><th>一位</th><th>二位</th><th>三位</th><th>四位</th>
+        <tr><th>#</th><th>队伍</th><th>场次</th><th>赛程</th><th>一位</th><th>二位</th><th>三位</th><th>四位</th>
         <th>平均顺位</th><th>积分</th><th>素点</th></tr>
       </thead><tbody></tbody></table></div>
     </div>
@@ -44,6 +44,7 @@
 import { api, esc } from "/static/js/api.js";
 
 const rankBadge = (r) => `<span class="rank-badge rank-${r}">${r}</span>`;
+const REGULAR_SEASON_GAMES = 45;
 
 async function main() {
   const league = await api("/api/league");
@@ -63,18 +64,46 @@ async function main() {
   }
   document.title = league.name;
 
-  const st = await api("/api/standings?by=team");
+  const [st, teams] = await Promise.all([
+    api("/api/standings?by=team"),
+    api("/api/teams"),
+  ]);
+  const standingsByTeamId = new Map(
+    st.rows.filter((row) => row.team_id != null)
+      .map((row, index) => [row.team_id, { ...row, place: index + 1 }])
+  );
+  const rows = teams.map((team) => ({
+    ...(standingsByTeamId.get(team.id) || {}),
+    team_id: team.id,
+    name: team.name,
+    color: team.color,
+    logo_path: team.logo_path,
+    games: standingsByTeamId.get(team.id)?.games || 0,
+    rank_counts: standingsByTeamId.get(team.id)?.rank_counts || [0, 0, 0, 0],
+    avg_rank: standingsByTeamId.get(team.id)?.avg_rank || 0,
+    points: standingsByTeamId.get(team.id)?.points || 0,
+    raw_points: standingsByTeamId.get(team.id)?.raw_points || 0,
+    place: standingsByTeamId.get(team.id)?.place || null,
+  }));
+  const ungrouped = st.rows.find((row) => row.team_id == null);
+  if (ungrouped) rows.push({ ...ungrouped, name: "未分组", logo_path: null, place: null });
   const tbody = document.querySelector("#standings tbody");
-  tbody.innerHTML = st.rows.map((r, i) => `
+  tbody.innerHTML = rows.map((r) => `
     <tr>
-      <td>${i + 1}</td>
-      <td><span class="team-dot" style="background:${r.color}"></span>${esc(r.name)}</td>
+      <td>${r.place || "—"}</td>
+      <td class="home-team-cell">
+        ${r.logo_path
+          ? `<img class="home-team-logo" src="${esc(r.logo_path)}" alt="">`
+          : `<span class="team-dot" style="background:${r.color || "#8b90a3"}"></span>`}
+        <span>${esc(r.name)}</span>
+      </td>
       <td>${r.games}</td>
+      <td>${r.games}/${REGULAR_SEASON_GAMES}</td>
       ${r.rank_counts.map((c) => `<td>${c}</td>`).join("")}
-      <td>${r.avg_rank.toFixed(2)}</td>
+      <td>${r.games ? Number(r.avg_rank).toFixed(2) : "—"}</td>
       <td><b>${r.points}</b></td>
       <td class="muted">${r.raw_points > 0 ? "+" : ""}${Number(r.raw_points || 0).toFixed(1)}</td>
-    </tr>`).join("") || `<tr><td colspan="10" class="muted">暂无对局数据</td></tr>`;
+    </tr>`).join("") || `<tr><td colspan="11" class="muted">暂无对局数据</td></tr>`;
 
   const games = await api("/api/games?size=5");
   const recent = document.getElementById("recent");

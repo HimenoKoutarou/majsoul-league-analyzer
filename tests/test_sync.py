@@ -4,7 +4,7 @@ from pathlib import Path
 
 import liqi_combined_pb2 as pb  # noqa: F401  (sys.path 已在 conftest 注入)
 
-from app.models import Game, Player, SyncRun
+from app.models import Game, League, Player, SyncRun
 from app.services.majsoul import sync as sync_mod
 from app.services.paipu.ingest import ingest_tenhou_game
 
@@ -18,6 +18,11 @@ async def _ok(obj):
 class FakeDHS:
     def __init__(self):
         self.logged_contest = None
+        self.contest_rule = {
+            "shunweima_2": 30,
+            "shunweima_3": 0,
+            "shunweima_4": -30,
+        }
 
     async def fetch_contest_info(self):
         class C:
@@ -91,12 +96,14 @@ def test_run_dhs_sync(db):
     # 同步记录
     run = db.query(SyncRun).one()
     assert run.status == "success"
+    assert db.query(League).first().score_rule["rank_points"] == [0, 30, 0, -30]
 
     # 幂等：再跑一次不重复入库
     result2 = sync_mod.run_dhs_sync(
         db, contest_id=123, username="u", password="p",
         make_dhs=lambda u, p: _ok(FakeDHS()), make_lobby=lambda u, p: _ok(FakeLobby()))
     assert result2["games_added"] == 0
+    assert db.query(League).first().score_rule["rank_points"] == [0, 30, 0, -30]
 
 
 def test_sync_partial_on_error(db):

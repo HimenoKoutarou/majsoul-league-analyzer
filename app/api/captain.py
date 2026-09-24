@@ -223,10 +223,17 @@ def verify_player(account_id: int, captain: tuple = Depends(current_captain),
 
 
 @router.get("/matchdays")
-def list_matchdays(count: int = 6, db: Session = Depends(get_db)):
+def list_matchdays(count: int = 6, captain: tuple = Depends(current_captain),
+                   db: Session = Depends(get_db)):
     count = max(1, min(int(count), 30))
+    _, team = captain
     if has_schedule(db):
-        days = [row.match_date for row in scheduled_matchdays(db, count)]
+        # 管理员上传的赛程可能包含本队轮空日，队长只需要管理本队出战日期。
+        rows = scheduled_matchdays(db, count=30)
+        days = [
+            row.match_date for row in rows
+            if team.team_number in {int(number) for number in (row.team_numbers or [])}
+        ][:count]
     else:
         days = next_matchdays(count)
     return [{"date": d.isoformat(),

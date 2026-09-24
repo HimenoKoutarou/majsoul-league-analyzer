@@ -479,6 +479,61 @@ input[type="color"]::-webkit-color-swatch { border: 0; border-radius: 4px; }
   white-space: nowrap;
 }
 
+.admin-bounty-edit-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(140px, 1fr) 110px minmax(0, 1fr);
+  gap: 8px 12px;
+  margin: 10px 0;
+}
+
+.admin-bounty-edit-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: #5f6368;
+  font-size: .9rem;
+}
+
+.admin-bounty-edit-grid input,
+.admin-bounty-edit-grid textarea {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.admin-bounty-description {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 720px) {
+  .admin-bounty-edit-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .admin-bounty-description {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 480px) {
+  #tab-bounties {
+    padding: 14px;
+  }
+
+  .admin-bounty-edit-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-bounty-description {
+    grid-column: auto;
+  }
+
+  #admin-bounty-list [data-save-bounty],
+  #admin-bounty-list [data-bounty-status] {
+    min-height: 40px;
+  }
+}
+
 .stat-cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));

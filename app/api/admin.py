@@ -585,16 +585,25 @@ def admin_update_bounty(bounty_id: int, body: dict, db: Session = Depends(get_db
         raise HTTPException(404, "悬赏不存在")
     for key in ("title", "description", "reward"):
         if key in body and body[key] is not None:
-            setattr(bounty, key, str(body[key]).strip())
+            value = str(body[key]).strip()
+            if key in ("title", "description") and not value:
+                raise HTTPException(422, f"{key} 不能为空")
+            setattr(bounty, key, value)
     if "target_date" in body:
         try:
             bounty.target_date = datetime.strptime(
                 str(body["target_date"]), "%Y-%m-%d").date()
         except (ValueError, TypeError):
-            pass
-    if "max_claims" in body and isinstance(body["max_claims"], int) and body["max_claims"] >= 1:
+            raise HTTPException(422, "target_date 必须是 YYYY-MM-DD")
+    if "max_claims" in body:
+        if (isinstance(body["max_claims"], bool)
+                or not isinstance(body["max_claims"], int)
+                or body["max_claims"] < 1):
+            raise HTTPException(422, "max_claims 必须是大于等于1的整数")
         bounty.max_claims = body["max_claims"]
-    if "status" in body and body["status"] in ("pending", "approved", "rejected", "closed"):
+    if "status" in body:
+        if body["status"] not in ("pending", "approved", "rejected", "closed"):
+            raise HTTPException(422, "status 无效")
         bounty.status = body["status"]
         if body["status"] in ("approved", "rejected"):
             bounty.reviewed_at = datetime.now()

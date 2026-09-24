@@ -583,22 +583,30 @@ async function loadAdminBounties() {
           <b>${esc(b.title)}</b>${bountyStatusTag(b.status)}
           <span class="muted">目标 ${b.target_date || "—"} · 达成 ${b.claimed_count}/${b.max_claims}</span>
         </div>
-        <div class="muted" style="margin:4px 0">${esc(b.description)}</div>
-        ${b.reward ? `<div class="muted">奖励：${esc(b.reward)}</div>` : ""}
+        <div class="admin-bounty-edit-grid">
+          <label>标题<input data-bounty-field="title" data-bounty-id="${b.id}" value="${esc(b.title)}"></label>
+          <label>目标日期<input type="date" data-bounty-field="target_date" data-bounty-id="${b.id}" value="${esc(b.target_date || "")}"></label>
+          <label>达成次数<input type="number" min="1" data-bounty-field="max_claims" data-bounty-id="${b.id}" value="${b.max_claims}"></label>
+          <label>奖励<input data-bounty-field="reward" data-bounty-id="${b.id}" value="${esc(b.reward || "")}"></label>
+          <label class="admin-bounty-description">达成条件<textarea rows="2" data-bounty-field="description" data-bounty-id="${b.id}">${esc(b.description)}</textarea></label>
+        </div>
         <div class="muted">提交人：${esc(b.submitter_nickname || "匿名")}${b.submitter_account_id ? `（雀魂ID ${b.submitter_account_id}）` : ""}</div>
         <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
-          <label class="muted">达成次数 <input type="number" min="1" value="${b.max_claims}" data-max="${b.id}" style="width:64px"></label>
-          <button class="btn" data-save-max="${b.id}">保存次数</button>
+          <button class="btn" data-save-bounty="${b.id}">保存修改</button>
           ${b.status !== "approved" ? `<button class="btn primary" data-bounty-status="${b.id}:approved">通过</button>` : ""}
           ${b.status !== "rejected" && b.status !== "closed" ? `<button class="btn" data-bounty-status="${b.id}:rejected">驳回</button>` : ""}
           ${b.status === "approved" ? `<button class="btn" data-bounty-status="${b.id}:closed">关闭</button>` : ""}
         </div>
       </div>`).join("") || `<span class="muted">暂无悬赏</span>`;
-    $("admin-bounty-list").querySelectorAll("[data-save-max]").forEach((btn) => btn.onclick = async () => {
+    $("admin-bounty-list").querySelectorAll("[data-save-bounty]").forEach((btn) => btn.onclick = async () => {
       if (!await guard()) return;
-      const val = +$("admin-bounty-list").querySelector(`[data-max="${btn.dataset.saveMax}"]`).value;
-      if (!(val >= 1)) { toast("次数至少为 1"); return; }
-      await api(`/api/admin/bounties/${btn.dataset.saveMax}`, { method: "PUT", headers: H(), body: JSON.stringify({ max_claims: val }) });
+      const id = btn.dataset.saveBounty;
+      const fields = [...$("admin-bounty-list").querySelectorAll(`[data-bounty-id="${id}"]`)];
+      const body = Object.fromEntries(fields.map((field) => [
+        field.dataset.bountyField,
+        field.type === "number" ? Number(field.value) : field.value,
+      ]));
+      await api(`/api/admin/bounties/${id}`, { method: "PUT", headers: H(), body: JSON.stringify(body) });
       toast("已保存"); loadAdminBounties();
     });
     $("admin-bounty-list").querySelectorAll("[data-bounty-status]").forEach((btn) => btn.onclick = async () => {

@@ -43,6 +43,19 @@ $env:BOT_DRY_RUN = "true"
 python -m bot
 ```
 
+## 酒馆岛 AI 对话
+
+启用后，群内不以 `/` 或 `!` 开头的普通文本会转发到酒馆岛卡片 Token
+接口，回复会发送回原群；每个群独立串联对话上下文（上下文由平台按 Token
+维护）。
+
+```powershell
+$env:JIUGUANDAO_ENABLED = "true"
+$env:JIUGUANDAO_BASE_URL = "https://u3670369.nyat.app:24205"
+$env:JIUGUANDAO_TOKEN = "your-card-token"
+python -m bot
+```
+
 ## 当前命令
 
 群内支持以下命令：

@@ -87,6 +87,45 @@ def test_update_max_claims(client, db):
     assert db.get(Bounty, bid).max_claims == 5
 
 
+def test_admin_can_edit_bounty_fields(client, db):
+    bid = _create_bounty(client).json()["id"]
+    response = client.put(
+        f"/api/admin/bounties/{bid}",
+        json={
+            "title": "修改后的悬赏",
+            "description": "新的达成条件",
+            "reward": "新的奖励",
+            "target_date": "2099-02-03",
+            "max_claims": 3,
+        },
+        headers=_auth(client),
+    )
+    assert response.status_code == 200
+    bounty = db.get(Bounty, bid)
+    assert bounty.title == "修改后的悬赏"
+    assert bounty.description == "新的达成条件"
+    assert bounty.reward == "新的奖励"
+    assert bounty.target_date.isoformat() == "2099-02-03"
+    assert bounty.max_claims == 3
+
+    invalid = client.put(
+        f"/api/admin/bounties/{bid}",
+        json={"target_date": "invalid"},
+        headers=_auth(client),
+    )
+    assert invalid.status_code == 422
+
+
+def test_admin_bounty_edit_rejects_empty_required_fields(client, db):
+    bid = _create_bounty(client).json()["id"]
+    response = client.put(
+        f"/api/admin/bounties/{bid}",
+        json={"title": " "},
+        headers=_auth(client),
+    )
+    assert response.status_code == 422
+
+
 def test_claim_flow_and_close(client, db):
     r = _create_bounty(client, target_date="2000-01-01")
     bid = r.json()["id"]

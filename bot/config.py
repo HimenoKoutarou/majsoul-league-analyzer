@@ -13,6 +13,14 @@ STATE_PATH = Path(os.environ.get("BOT_STATE_PATH", "bot_data/state.json"))
 DRY_RUN = os.environ.get("BOT_DRY_RUN", "").lower() in ("1", "true", "yes", "on")
 ONEBOT_WS_URL = os.environ.get("ONEBOT_WS_URL", "ws://127.0.0.1:6700/onebot/v11/ws")
 ONEBOT_ACCESS_TOKEN = os.environ.get("ONEBOT_ACCESS_TOKEN", "").strip()
+JIUGUANDAO_ENABLED = os.environ.get("JIUGUANDAO_ENABLED", "").lower() in (
+    "1", "true", "yes", "on"
+)
+JIUGUANDAO_BASE_URL = os.environ.get(
+    "JIUGUANDAO_BASE_URL", "https://u3670369.nyat.app:24205"
+).rstrip("/")
+JIUGUANDAO_TOKEN = os.environ.get("JIUGUANDAO_TOKEN", "").strip()
+JIUGUANDAO_REPLY_PREFIX = os.environ.get("JIUGUANDAO_REPLY_PREFIX", "").strip()
 DIGEST_ENABLED = os.environ.get("BOT_DIGEST_ENABLED", "").lower() in (
     "1", "true", "yes", "on"
 )

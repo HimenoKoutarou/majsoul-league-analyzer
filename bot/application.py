@@ -5,6 +5,7 @@ from datetime import datetime
 
 from . import config
 from .adapters.dry_run import DryRunAdapter
+from .adapters.jiuguandao import JiuGuanDaoClient
 from .adapters.onebot import OneBotAdapter
 from .api_client import SiteApi
 from .commands import CommandService
@@ -22,6 +23,11 @@ class BotApplication:
         self.state = StateStore(config.STATE_PATH)
         self.commands = CommandService(self.api)
         self.group_ids = config.GROUP_IDS
+        self.jiuguandao = (
+            JiuGuanDaoClient(config.JIUGUANDAO_BASE_URL, config.JIUGUANDAO_TOKEN)
+            if config.JIUGUANDAO_ENABLED and config.JIUGUANDAO_TOKEN
+            else None
+        )
         self.adapter = (DryRunAdapter() if config.DRY_RUN else
                         OneBotAdapter(config.ONEBOT_WS_URL, config.ONEBOT_ACCESS_TOKEN))
 
@@ -34,6 +40,8 @@ class BotApplication:
             )
         finally:
             await self.api.close()
+            if self.jiuguandao:
+                await self.jiuguandao.close()
 
     async def _consume_events(self):
         while True:
@@ -88,10 +96,19 @@ class BotApplication:
     async def _on_message(self, group_id: str, text: str):
         if self.group_ids and group_id not in self.group_ids:
             return
-        if not text.strip().startswith(("/", "!")):
+        stripped = text.strip()
+        if not stripped:
             return
         try:
-            command = text.strip().split(maxsplit=1)[0].lstrip("/!").lower()
+            if not stripped.startswith(("/", "!")):
+                if not self.jiuguandao:
+                    return
+                response = await self.jiuguandao.chat(group_id, stripped)
+                if config.JIUGUANDAO_REPLY_PREFIX:
+                    response = f"{config.JIUGUANDAO_REPLY_PREFIX}{response}"
+                await self.adapter.send_group_message(group_id, response)
+                return
+            command = stripped.split(maxsplit=1)[0].lstrip("/!").lower()
             if command in ("订阅", "subscribe"):
                 changed = self.state.subscribe(group_id, self.group_ids)
                 response = "已订阅本群的新牌谱推送。" if changed else "本群已经订阅新牌谱推送。"

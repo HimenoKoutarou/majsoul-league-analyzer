@@ -240,6 +240,28 @@ def test_uploaded_schedule_controls_active_and_bye_teams(client, db):
     assert rejected.status_code == 422
 
 
+def test_captain_matchdays_hide_team_bye_days(client, db):
+    team_id, other_id, ids = _seed(client, db)
+    extra = []
+    for number in (3, 4, 5, 6):
+        team = Team(name=f"轮空测试队{number}", team_number=number)
+        db.add(team)
+        extra.append(team)
+    db.flush()
+    active_date = date(2026, 10, 1)
+    bye_date = date(2026, 10, 2)
+    db.add_all([
+        ScheduleDay(match_date=active_date, team_numbers=[1, 2, 3, 4]),
+        ScheduleDay(match_date=bye_date, team_numbers=[2, 3, 4, 5]),
+    ])
+    db.commit()
+    _login(client)
+
+    response = client.get("/api/captain/matchdays?count=6")
+    assert response.status_code == 200
+    assert [row["date"] for row in response.json()] == [active_date.isoformat()]
+
+
 def test_public_hides_before_cutoff_but_shows_past(client, db, monkeypatch):
     """18:00 截止前不公开；截止后（含过去日期）公开显示。"""
     team_id, _, ids = _seed(client, db)

@@ -17,6 +17,7 @@ __pycache__/
 tmp/
 *.log
 bot_data/
+bot.local.ps1
 
 # 编辑器分享打包目录（自动生成，不入库）
 .trae-html-share-packages/

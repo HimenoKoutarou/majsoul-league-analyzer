@@ -47,7 +47,7 @@
     <div class="section-heading">
       <div>
         <h2>队伍成绩表</h2>
-        <p class="muted">每队先显示队伍汇总，随后列出该队名册中的个人成绩。</p>
+        <p class="muted">按队伍汇总展示联赛成绩。</p>
       </div>
     </div>
     <div class="comparison-scroll">
@@ -339,12 +339,9 @@ function renderComparison() {
 function renderTeamBoard() {
   const body = document.getElementById("team-body");
   const rows = [];
-  const playerRows = buildPlayerRows();
-  const playerById = new Map(playerRows.map((row) => [row.player_id, row]));
   const standingById = new Map(teamStandings.map((row, index) =>
     [row.team_id, { row, place: index + 1 }]));
   const teamRows = [];
-  const memberRows = [];
   const teamsWithRows = [...teams].sort((a, b) => {
     const rankA = standingById.get(a.id)?.place || Number.MAX_SAFE_INTEGER;
     const rankB = standingById.get(b.id)?.place || Number.MAX_SAFE_INTEGER;
@@ -358,31 +355,12 @@ function renderTeamBoard() {
       }),
       place: standing?.place || index + 1,
     });
-    team.players.forEach((player) => {
-      const member = playerById.get(player.id) || tableData(null, null, {
-        player_id: player.id, nickname: player.nickname,
-        team_id: team.id, team_name: team.name, team_color: team.color,
-      });
-      member.memberRow = true;
-      member.team_name = team.name;
-      member.team_color = team.color;
-      member.memberRow = true;
-      memberRows.push(member);
-    });
   });
-  const ungrouped = playerRows.filter((row) => row.team_id == null);
   decorateRanks(teamRows);
-  decorateRanks(memberRows);
   teamsWithRows.forEach((team, index) => {
     const teamRow = teamRows[index];
     rows.push(leaderboardRow(teamRow, teamRow.place, true));
-    rows.push(...memberRows.filter((row) => row.team_id === team.id)
-      .map((row) => leaderboardRow(row, row.place)));
   });
-  if (ungrouped.length) {
-    rows.push(`<tr class="team-summary-row"><td colspan="15">未分组</td></tr>`);
-    rows.push(...ungrouped.map((row) => leaderboardRow(row, row.place)));
-  }
   body.innerHTML = rows.join("") || `<tr><td colspan="15" class="muted">暂无数据</td></tr>`;
   bindLeaderboardLinks(body);
 }
